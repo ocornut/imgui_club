@@ -2,7 +2,7 @@
 
 https://github.com/ocornut/imgui_club/tree/master/imgui_freetype
 
-This is an attempt to replace stb_truetype (the default imgui's font rasterizer) with FreeType. Probably lots of bugs, not production ready.
+This is an attempt to replace stb_truetype (the default imgui's font rasterizer) with FreeType. Probably lots of bugs, not production ready. By @Vuhdo.
 
 1. Get latest FreeType binaries or build yourself.
 2. Add imgui_freetype.h/cpp alongside your imgui sources.
@@ -19,6 +19,11 @@ io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 Known issues:
 1. Excessive font texture resolution.
 2. FreeType's memory allocator is not overriden.
+
+Obligatory comparison screenshots:
+Using Windows built-in segoeui.ttf font. Open in new browser tabs, view at 1080p+.
+
+![freetype rasterizer](https://raw.githubusercontent.com/wiki/ocornut/imgui_club/images/freetype_20170817.png)
 
 ----
 
