@@ -28,8 +28,8 @@
 // - v0.19: fixed auto-focus of next byte leaving WantCaptureKeyboard=false for one frame. we now capture the keyboard during that transition.
 // - v0.20: added options menu. added OptShowAscii checkbox. added optional HexII display. split Draw() in DrawWindow()/DrawContents(). fixing glyph width. refactoring/cleaning code.
 // - v0.21: fixes for using DrawContents() in our own window. fixed HexII to actually be useful and not on the wrong side.
-// - v0.22: clicking Ascii view select the byte in the Hex view. Ascii view highlight selection.
 // - v0.23: fixed right-arrow triggering a byte write
+// - v0.24: added viewer for common data types
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -63,6 +63,9 @@ struct MemoryEditor
     char            AddrInputBuf[32];
     size_t          GotoAddr;
     size_t          HighlightMin, HighlightMax;
+    int             Endianess;
+    int             IntWidth;
+    int             IntFormat;
 
     MemoryEditor()
     {
@@ -88,6 +91,9 @@ struct MemoryEditor
         memset(AddrInputBuf, 0, sizeof(AddrInputBuf));
         GotoAddr = (size_t)-1;
         HighlightMin = HighlightMax = (size_t)-1;
+        Endianess = 0;
+        IntWidth = 0;
+        IntFormat = 2;
     }
 
     void GotoAddrAndHighlight(size_t addr_min, size_t addr_max)
@@ -135,6 +141,74 @@ struct MemoryEditor
         s.WindowWidth = s.PosAsciiEnd + style.ScrollbarSize + style.WindowPadding.x * 2 + s.GlyphWidth;
     }
 
+    int FormatSize(int format)
+    {
+        switch (format) {
+        case 0: case 1: return 1;
+        case 2: case 3: return 2;
+        case 4: case 5: return 4;
+        case 6: case 7: return 8;
+        case 8: return 4;
+        case 9: return 8;
+        default: return 0;
+        }
+    }
+
+    bool isBE()
+    {
+        uint16_t x = 1;
+        char c[2];
+        memcpy(c, &x, 2);
+        return c[0];
+    }
+
+    static void *EndianessCopyBE(void *_dst, void *_src, size_t s, int isLE)
+    {
+        if (isLE) {
+            uint8_t *dst = (uint8_t *)_dst;
+            uint8_t *src = (uint8_t *)_src + s - 1;
+            for (int i = 0, n = (int)s; i < n; ++i)
+                memcpy(dst++, src--, 1);
+            return _dst;
+        } else {
+            return memcpy(_dst, _src, s);
+        }
+    }
+
+    static void *EndianessCopyLE(void *_dst, void *_src, size_t s, int isLE)
+    {
+        if (isLE) {
+            return memcpy(_dst, _src, s);
+        } else {
+            uint8_t *dst = (uint8_t *)_dst;
+            uint8_t *src = (uint8_t *)_src + s - 1;
+            for (int i = 0, n = (int)s; i < n; ++i)
+                memcpy(dst++, src--, 1);
+            return _dst;
+        }
+    }
+
+    void *EndianessCopy(void *dst, void *src, size_t size)
+    {
+        static void *(*fp)(void *, void *, size_t, int) = NULL;
+        if (fp) return fp(dst, src, size, Endianess);
+        if (isBE()) fp = EndianessCopyBE;
+        else fp = EndianessCopyLE;
+        return fp(dst, src, size, Endianess);
+    }
+
+    char const *GetBinary(uint8_t *buf, int width)
+    {
+        static char s[65];
+        for (int j = 0, n = width / 8; j < n; ++j)
+            for (int i = 0, m = 7; i < 8; ++i)
+                s[(j*8)+m--] = ((buf[j] & (0x1 << i)) != 0) + 0x30;
+        s[width+1] = 0;
+        return s;
+    }
+
+
+
 #ifdef _MSC_VER
 #define _PRISizeT   "IX"
 #else
@@ -170,7 +244,8 @@ struct MemoryEditor
         CalcSizes(s, mem_size, base_display_addr);
         ImGuiStyle& style = ImGui::GetStyle();
 
-        ImGui::BeginChild("##scrolling", ImVec2(0, -ImGui::GetItemsLineHeightWithSpacing()));
+        float spacing = -ImGui::GetItemsLineHeightWithSpacing() * 2.0f;
+        ImGui::BeginChild("##scrolling", ImVec2(0, spacing));
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -413,6 +488,147 @@ struct MemoryEditor
                 DataEditingTakeFocus = true;
             }
             GotoAddr = (size_t)-1;
+        }
+
+
+        ImGui::PushItemWidth((s.GlyphWidth * 6.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+        ImGui::Combo("##combo1", &Endianess, "LE\0BE\0\0");
+        ImGui::PopItemWidth();
+
+        ImGui::SameLine();
+        ImGui::PushItemWidth((s.GlyphWidth * 10.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+        ImGui::Combo("##combo2", &IntWidth, "Int8\0UInt8\0Int16\0UInt16\0Int32\0UInt32\0Int64\0UInt64\0Float\0Double\0\0");
+        ImGui::PopItemWidth();
+
+        ImGui::SameLine();
+        ImGui::PushItemWidth((s.GlyphWidth * 7.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+        ImGui::Combo("##combo3", &IntFormat, "Bin\0Oct\0Dec\0Hex\0\0");
+        ImGui::PopItemWidth();
+
+        ImGui::SameLine();
+        if (data_editing_addr_backup != (size_t)-1) {
+            uint8_t buf[8];
+            int elem_size = FormatSize(IntWidth);
+            size_t size = data_editing_addr_backup + elem_size > mem_size ? mem_size - data_editing_addr_backup : elem_size;
+            if (ReadFn)
+                for (int i = 0; i < size; ++i)
+                    buf[i] = ReadFn(mem_data, data_editing_addr_backup + i);
+            else
+                memcpy(buf, mem_data + data_editing_addr_backup, size);
+
+            switch (IntWidth) {
+            case 0: {
+                int8_t int8 = 0;
+                EndianessCopy(&int8, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 8)); break;
+                case 1: ImGui::Text("%hho", int8); break;
+                case 2: ImGui::Text("%hhd", int8); break;
+                case 3: ImGui::Text("%hhx", int8); break;
+                }
+                break;
+            }
+
+            case 1: {
+                uint8_t uint8 = 0;
+                EndianessCopy(&uint8, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 8)); break;
+                case 1: ImGui::Text("%hho", uint8); break;
+                case 2: ImGui::Text("%hhu", uint8); break;
+                case 3: ImGui::Text("%hhx", uint8); break;
+                }
+                break;
+            }
+
+            case 2: {
+                int16_t int16 = 0;
+                EndianessCopy(&int16, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 16)); break;
+                case 1: ImGui::Text("%ho", int16); break;
+                case 2: ImGui::Text("%hd", int16); break;
+                case 3: ImGui::Text("%hx", int16); break;
+                }
+                break;
+            }
+
+            case 3: {
+                uint16_t uint16 = 0;
+                EndianessCopy(&uint16, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 16)); break;
+                case 1: ImGui::Text("%ho", uint16); break;
+                case 2: ImGui::Text("%hu", uint16); break;
+                case 3: ImGui::Text("%hx", uint16); break;
+                }
+                break;
+            }
+
+            case 4: {
+                int32_t int32 = 0;
+                EndianessCopy(&int32, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 32)); break;
+                case 1: ImGui::Text("%o", int32); break;
+                case 2: ImGui::Text("%d", int32); break;
+                case 3: ImGui::Text("%x", int32); break;
+                }
+                break;
+            }
+
+            case 5: {
+                uint32_t uint32 = 0;
+                EndianessCopy(&uint32, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 32)); break;
+                case 1: ImGui::Text("%o", uint32); break;
+                case 2: ImGui::Text("%u", uint32); break;
+                case 3: ImGui::Text("%x", uint32); break;
+                }
+                break;
+            }
+
+            case 6: {
+                int64_t int64 = 0;
+                EndianessCopy(&int64, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 64)); break;
+                case 1: ImGui::Text("%llo", (long long)int64); break;
+                case 2: ImGui::Text("%lld", (long long)int64); break;
+                case 3: ImGui::Text("%llx", (long long)int64); break;
+                }
+                break;
+            }
+
+            case 7: {
+                uint64_t uint64 = 0;
+                EndianessCopy(&uint64, buf, size);
+                switch (IntFormat) {
+                case 0: ImGui::Text("%s", GetBinary(buf, 64)); break;
+                case 1: ImGui::Text("%llo", (long long)uint64); break;
+                case 2: ImGui::Text("%llu", (long long)uint64); break;
+                case 3: ImGui::Text("%llx", (long long)uint64); break;
+                }
+                break;
+            }
+
+            case 8: {
+                float float32 = 0;
+                EndianessCopy(&float32, buf, size);
+                ImGui::Text("%a", float32);
+                break;
+            }
+
+            case 9: {
+                double float64 = 0;
+                EndianessCopy(&float64, buf, size);
+                ImGui::Text("%a", float64);
+                break;
+            }
+            }
+        } else {
+            ImGui::Text("No selection");
         }
 
         // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
