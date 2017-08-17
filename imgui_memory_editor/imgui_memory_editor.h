@@ -511,7 +511,7 @@ struct MemoryEditor
             int elem_size = FormatSize(IntWidth);
             size_t size = data_editing_addr_backup + elem_size > mem_size ? mem_size - data_editing_addr_backup : elem_size;
             if (ReadFn)
-                for (int i = 0; i < size; ++i)
+                for (int i = 0, n = (int)size; i < n; ++i)
                     buf[i] = ReadFn(mem_data, data_editing_addr_backup + i);
             else
                 memcpy(buf, mem_data + data_editing_addr_backup, size);
