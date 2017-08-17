@@ -2,7 +2,7 @@
 
 https://github.com/ocornut/imgui_club/tree/master/imgui_freetype
 
-This is an attempt to replace stb_truetype (the default imgui's font rasterizer) with FreeType. Probably lots of bugs, not production ready. By [@Vuhdo](https://github.com/Vuhdo).
+This is an attempt to replace stb_truetype (the default imgui's font rasterizer) with FreeType. Probably lots of bugs, not production ready. By [Vuhdo](https://github.com/Vuhdo) (Aleksei Skriabin).
 
 **Usage**
 1. Get latest FreeType binaries or build yourself.
