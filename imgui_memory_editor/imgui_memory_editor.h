@@ -1,5 +1,6 @@
 // Mini memory editor for Dear ImGui (to embed in your game/tools)
 // Animated GIF: https://twitter.com/ocornut/status/894242704317530112
+// Get latest version at http://www.github.com/ocornut/imgui_club
 //
 // You can adjust the keyboard repeat delay/rate in ImGuiIO.
 // The code assume a mono-space font for simplicity! If you don't use the default font, use ImGui::PushFont()/PopFont() to switch to a mono-space font before caling this.
