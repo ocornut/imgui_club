@@ -3,7 +3,7 @@
 // Get latest version at http://www.github.com/ocornut/imgui_club
 
 // Changelog:
-// - v0.50: 
+// - v0.50: imported from https://github.com/Vuhdo/imgui_freetype, updated for latest changes in ImFontAtlas, minor tweaks.
 
 #include "imgui_freetype.h"
 #include <stdint.h>
