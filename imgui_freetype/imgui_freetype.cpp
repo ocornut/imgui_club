@@ -13,6 +13,14 @@
 #include FT_SYNTHESIS_H
 #include "imgui_internal.h"
 
+#ifdef _MSC_VER
+#pragma warning (disable: 4505) // unreferenced local function has been removed (stb stuff)
+#endif
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wunused-function"          // warning: 'xxxx' defined but not used
+#endif
+
 namespace 
 {
     /// Font parameters and metrics.
