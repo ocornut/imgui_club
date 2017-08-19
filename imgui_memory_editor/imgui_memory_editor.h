@@ -30,6 +30,7 @@
 // - v0.21: fixes for using DrawContents() in our own window. fixed HexII to actually be useful and not on the wrong side.
 // - v0.22: clicking Ascii view select the byte in the Hex view. Ascii view highlight selection.
 // - v0.23: fixed right-arrow triggering a byte write
+// - v0.24: added buttons to cycle through highlighted addresses, if the highlight callback is provided.
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -61,7 +62,7 @@ struct MemoryEditor
     bool            DataEditingTakeFocus;
     char            DataInputBuf[32];
     char            AddrInputBuf[32];
-    size_t          GotoAddr;
+    size_t          GotoAddr, HighlightAddr;
     size_t          HighlightMin, HighlightMax;
 
     MemoryEditor()
@@ -88,6 +89,7 @@ struct MemoryEditor
         memset(AddrInputBuf, 0, sizeof(AddrInputBuf));
         GotoAddr = (size_t)-1;
         HighlightMin = HighlightMax = (size_t)-1;
+        HighlightAddr = (size_t)-1;
     }
 
     void GotoAddrAndHighlight(size_t addr_min, size_t addr_max)
@@ -401,6 +403,77 @@ struct MemoryEditor
             }
         }
         ImGui::PopItemWidth();
+
+        if (HighlightFn)
+        {
+            ImGui::SameLine();
+
+            if (ImGui::Button("<"))
+            {
+                size_t start;
+                bool set = false;
+                size_t addr;
+
+                if (HighlightAddr == 0 || HighlightAddr == (size_t)-1) start = mem_size - 1;
+                else start = HighlightAddr - 1;
+
+                for (addr = start; addr != (size_t)-1; addr--)
+                {
+                    if (HighlightFn(mem_data, addr))
+                    {
+                        HighlightAddr = GotoAddr = addr;
+                        set = true;
+                        break;
+                    }
+                }
+
+                if (!set)
+                {
+                    for (addr = mem_size - 1; addr > start; addr--)
+                    {
+                        if (HighlightFn(mem_data, addr))
+                        {
+                            HighlightAddr = GotoAddr = addr;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            ImGui::SameLine();
+
+            if (ImGui::Button(">"))
+            {
+                size_t start;
+                bool set = false;
+                size_t addr;
+
+                if (HighlightAddr == mem_size - 1 || HighlightAddr == (size_t)-1) start = 0;
+                else start = HighlightAddr + 1;
+
+                for (addr = start; addr < mem_size; addr++)
+                {
+                    if (HighlightFn(mem_data, addr))
+                    {
+                        HighlightAddr = GotoAddr = addr;
+                        set = true;
+                        break;
+                    }
+                }
+
+                if (!set)
+                {
+                    for (addr = 0; addr < start; addr++)
+                    {
+                        if (HighlightFn(mem_data, addr))
+                        {
+                            HighlightAddr = GotoAddr = addr;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         if (GotoAddr != (size_t)-1)
         {
