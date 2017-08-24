@@ -37,8 +37,8 @@ Features: Keyboard controls. Read-only mode. Optional Ascii display. Optional He
 
 **Usage**
 ```cpp
-static MemoryEditor mem_edit_1;
-mem_edit_1.DrawWindow("Memory Editor", data, data_size);
+static MemoryEditor mem_edit;
+mem_edit.DrawWindow("Memory Editor", data, data_size);
 ```
 
 ![memory editor](https://raw.githubusercontent.com/wiki/ocornut/imgui_club/images/memory_editor_v19.png)
