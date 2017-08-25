@@ -321,36 +321,36 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
                 if (cfg.MergeMode && dst_font->FindGlyph((unsigned short)codepoint))
                     continue;
 
-                GlyphInfo glyphInfo;
-                GlyphBitmap glyphBitmap;
-                font_face.RasterizeGlyph(codepoint, glyphInfo, glyphBitmap, font_flags);
+                GlyphInfo glyph_info;
+                GlyphBitmap glyph_bitmap;
+                font_face.RasterizeGlyph(codepoint, glyph_info, glyph_bitmap, font_flags);
 
                 // Copy rasterized pixels to main texture
                 stbrp_rect rect;
-                rect.w = (uint16_t)glyphBitmap.width + 1;		// account for texture filtering
-                rect.h = (uint16_t)glyphBitmap.height + 1;
+                rect.w = (uint16_t)glyph_bitmap.width + 1;		// account for texture filtering
+                rect.h = (uint16_t)glyph_bitmap.height + 1;
                 stbrp_pack_rects(&context, &rect, 1);
-                const uint8_t* src = glyphBitmap.grayscale;
+                const uint8_t* src = glyph_bitmap.grayscale;
                 uint8_t* dst = atlas->TexPixelsAlpha8 + rect.y * atlas->TexWidth + rect.x;
-                for (uint32_t yy = 0; yy < glyphBitmap.height; ++yy)
+                for (uint32_t yy = 0; yy < glyph_bitmap.height; ++yy)
                 {
-                    memcpy(dst, src, glyphBitmap.width);
-                    src += glyphBitmap.pitch;
+                    memcpy(dst, src, glyph_bitmap.width);
+                    src += glyph_bitmap.pitch;
                     dst += atlas->TexWidth;
                 }
 
                 dst_font->Glyphs.resize(dst_font->Glyphs.Size + 1);
                 ImFont::Glyph& glyph = dst_font->Glyphs.back();
                 glyph.Codepoint = (ImWchar)codepoint;
-                glyph.X0 = glyphInfo.OffsetX + off_x;
-                glyph.Y0 = glyphInfo.OffsetY + off_y;
-                glyph.X1 = glyph.X0 + glyphInfo.Width;
-                glyph.Y1 = glyph.Y0 + glyphInfo.Height;
+                glyph.X0 = glyph_info.OffsetX + off_x;
+                glyph.Y0 = glyph_info.OffsetY + off_y;
+                glyph.X1 = glyph.X0 + glyph_info.Width;
+                glyph.Y1 = glyph.Y0 + glyph_info.Height;
                 glyph.U0 = rect.x / (float)atlas->TexWidth;
                 glyph.V0 = rect.y / (float)atlas->TexHeight;
-                glyph.U1 = (rect.x + glyphInfo.Width) / (float)atlas->TexWidth;
-                glyph.V1 = (rect.y + glyphInfo.Height) / (float)atlas->TexHeight;
-                glyph.XAdvance = (glyphInfo.AdvanceX + cfg.GlyphExtraSpacing.x);  // Bake spacing into XAdvance
+                glyph.U1 = (rect.x + glyph_info.Width) / (float)atlas->TexWidth;
+                glyph.V1 = (rect.y + glyph_info.Height) / (float)atlas->TexHeight;
+                glyph.XAdvance = (glyph_info.AdvanceX + cfg.GlyphExtraSpacing.x);  // Bake spacing into XAdvance
 
                 if (cfg.PixelSnapH)
                     glyph.XAdvance = (float)(int)(glyph.XAdvance + 0.5f);
