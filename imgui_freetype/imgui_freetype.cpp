@@ -238,7 +238,7 @@ namespace
 #define STB_RECT_PACK_IMPLEMENTATION
 #include "stb_rect_pack.h"
 
-bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int flags)
+bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
 {
     IM_ASSERT(atlas->ConfigData.Size > 0);
     IM_ASSERT(atlas->TexGlyphPadding == 1); // Not supported
@@ -304,6 +304,7 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int flags)
     {
         ImFontConfig& cfg = atlas->ConfigData[input_i];
         FreeTypeFont& font_face = tmp_array[input_i];
+        unsigned font_flags = cfg.RasterizerFlags | extra_flags;
         ImFont* dst_font = cfg.DstFont;
 
         float ascent = font_face.fontInfo.Ascender;
@@ -322,7 +323,7 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int flags)
 
                 GlyphInfo glyphInfo;
                 GlyphBitmap glyphBitmap;
-                font_face.RasterizeGlyph(codepoint, glyphInfo, glyphBitmap, flags);
+                font_face.RasterizeGlyph(codepoint, glyphInfo, glyphBitmap, font_flags);
 
                 // Copy rasterized pixels to main texture
                 stbrp_rect rect;

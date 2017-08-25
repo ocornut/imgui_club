@@ -12,8 +12,9 @@ namespace ImGuiFreeType
     //  When disabled, FreeType generates blurrier glyphs, more or less matches the stb's output.
     //  The Default hinting mode usually looks good, but may distort glyphs in an unusual way.
     //  The Light hinting mode generates fuzzier glyphs but better matches Microsoft's rasterizer.
-    //
-    //  FIXME: Ideally, we should be able to specify hinting per font/size. But since we're the external post factum API we can't do it. Consider adding extra details to ImFontConfig.
+    
+    // You can set those flags on a per font basis in ImFontConfig::RasterizerFlags.
+    // Use the 'extra_flags' parameter of BuildFontAtlas() to force a flag on all your fonts.
     enum RasterizationFlags 
     {
         // By default, hinting is enabled and the font's native hinter is preferred over the auto-hinter.
@@ -26,5 +27,5 @@ namespace ImGuiFreeType
         Oblique         = 1 << 6,   // Styling: Should we slant the font, emulating italic style?
     };
 
-    IMGUI_API bool BuildFontAtlas(ImFontAtlas* atlas, unsigned int flags);
+    IMGUI_API bool BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags = 0);
 }
