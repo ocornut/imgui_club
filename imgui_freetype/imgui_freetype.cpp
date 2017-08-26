@@ -6,6 +6,10 @@
 // - v0.50: imported from https://github.com/Vuhdo/imgui_freetype, updated for latest changes in ImFontAtlas, minor tweaks.
 // - v0.51: cleanup, optimizations, support for ImFontConfig::RasterizerFlags, ImFontConfig::RasterizerMultiply.
 
+// Todo/Bugs:
+// - Font size has lots of waste.
+// - FreeType's memory allocator is not overriden.
+
 #include "imgui_freetype.h"
 #include "imgui_internal.h"   // ImMin,ImMax,ImFontAtlasBuild*,
 #include <stdint.h>
