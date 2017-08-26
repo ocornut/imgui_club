@@ -74,9 +74,6 @@ namespace
         float       LineSpacing;        // The baseline-to-baseline distance. Note that it usually is larger than the sum of the ascender and descender taken as absolute values. There is also no guarantee that no glyphs extend above or below subsequent baselines when using this distance. Think of it as a value the designer of the font finds appropriate.
         float       LineGap;            // The spacing in pixels between one row's descent and the next row's ascent.
         float       MaxAdvanceWidth;    // This field gives the maximum horizontal cursor advance for all glyphs in the font.
-        uint32_t    GlyphsCount;        // The number of glyphs available in the font face.
-        const char* FamilyName;
-        const char* StyleName;
     };
 
     // FreeType glyph rasterizer.
@@ -91,11 +88,11 @@ namespace
         void        BlitGlyph(FT_BitmapGlyph ft_bitmap, uint8_t* dst, uint32_t dst_pitch, unsigned char* multiply_table = NULL);
 
         // [Internals]
-        FontInfo        m_info;             // Font descriptor of the current font.
-        FT_Library      m_library;
-        FT_Face         m_face;
-        unsigned int    m_user_flags;       // RasterizerFlags
-        FT_Int32        m_freetype_flags;
+        FontInfo        Info;               // Font descriptor of the current font.
+        unsigned int    UserFlags;          // = ImFontConfig::RasterizerFlags
+        FT_Library      FreetypeLibrary;
+        FT_Face         FreetypeFace;
+        FT_Int32        FreetypeLoadFlags;
     };
 
     // From SDL_ttf: Handy routines for converting from fixed point
@@ -104,47 +101,43 @@ namespace
     bool FreeTypeFont::Init(const ImFontConfig& cfg, unsigned int extra_user_flags)
     {
         // FIXME: substitute allocator
-        FT_Error error = FT_Init_FreeType(&m_library);
+        FT_Error error = FT_Init_FreeType(&FreetypeLibrary);
         if (error != 0)
             return false;
-        error = FT_New_Memory_Face(m_library, (uint8_t*)cfg.FontData, (uint32_t)cfg.FontDataSize, (uint32_t)cfg.FontNo, &m_face);
+        error = FT_New_Memory_Face(FreetypeLibrary, (uint8_t*)cfg.FontData, (uint32_t)cfg.FontDataSize, (uint32_t)cfg.FontNo, &FreetypeFace);
         if (error != 0)
             return false;
-        error = FT_Select_Charmap(m_face, FT_ENCODING_UNICODE);
+        error = FT_Select_Charmap(FreetypeFace, FT_ENCODING_UNICODE);
         if (error != 0)
             return false;
-        memset(&m_info, 0, sizeof(m_info));
+
+        memset(&Info, 0, sizeof(Info));
         SetPixelHeight((uint32_t)cfg.SizePixels);
 
         // Convert to freetype flags (nb: Bold and Oblique are processed separately)
-        m_user_flags = cfg.RasterizerFlags | extra_user_flags;
-        m_freetype_flags = FT_LOAD_NO_BITMAP;
-        if (m_user_flags & ImGuiFreeType::NoHinting)      m_freetype_flags |= FT_LOAD_NO_HINTING;
-        if (m_user_flags & ImGuiFreeType::NoAutoHint)     m_freetype_flags |= FT_LOAD_NO_AUTOHINT;
-        if (m_user_flags & ImGuiFreeType::ForceAutoHint)  m_freetype_flags |= FT_LOAD_FORCE_AUTOHINT;
-        if (m_user_flags & ImGuiFreeType::LightHinting)   
-            m_freetype_flags |= FT_LOAD_TARGET_LIGHT;
-        else if (m_user_flags & ImGuiFreeType::MonoHinting)   
-            m_freetype_flags |= FT_LOAD_TARGET_MONO;
+        UserFlags = cfg.RasterizerFlags | extra_user_flags;
+        FreetypeLoadFlags = FT_LOAD_NO_BITMAP;
+        if (UserFlags & ImGuiFreeType::NoHinting)      FreetypeLoadFlags |= FT_LOAD_NO_HINTING;
+        if (UserFlags & ImGuiFreeType::NoAutoHint)     FreetypeLoadFlags |= FT_LOAD_NO_AUTOHINT;
+        if (UserFlags & ImGuiFreeType::ForceAutoHint)  FreetypeLoadFlags |= FT_LOAD_FORCE_AUTOHINT;
+        if (UserFlags & ImGuiFreeType::LightHinting)   
+            FreetypeLoadFlags |= FT_LOAD_TARGET_LIGHT;
+        else if (UserFlags & ImGuiFreeType::MonoHinting)   
+            FreetypeLoadFlags |= FT_LOAD_TARGET_MONO;
         else                                                
-            m_freetype_flags |= FT_LOAD_TARGET_NORMAL;
+            FreetypeLoadFlags |= FT_LOAD_TARGET_NORMAL;
 
-        // Fill up the font info
-        m_info.PixelHeight = (uint32_t)cfg.SizePixels;
-        m_info.GlyphsCount = m_face->num_glyphs;
-        m_info.FamilyName = m_face->family_name;
-        m_info.StyleName = m_face->style_name;
         return true;
     }
 
     void FreeTypeFont::Shutdown()
     {
-        if (m_face) 
+        if (FreetypeFace) 
         {
-            FT_Done_Face(m_face);
-            m_face = NULL;
-            FT_Done_FreeType(m_library);
-            m_library = NULL;
+            FT_Done_Face(FreetypeFace);
+            FreetypeFace = NULL;
+            FT_Done_FreeType(FreetypeLibrary);
+            FreetypeLibrary = NULL;
         }
     }
 
@@ -159,32 +152,32 @@ namespace
         req.height = (uint32_t)pixel_height * 64;
         req.horiResolution = 0;
         req.vertResolution = 0;
-        FT_Request_Size(m_face, &req);
+        FT_Request_Size(FreetypeFace, &req);
 
         // update font info
-        FT_Size_Metrics metrics = m_face->size->metrics;
-        m_info.PixelHeight = (uint32_t)pixel_height;
-        m_info.Ascender = (float)FT_CEIL(metrics.ascender);
-        m_info.Descender = (float)FT_CEIL(metrics.descender);
-        m_info.LineSpacing = (float)FT_CEIL(metrics.height);
-        m_info.LineGap = (float)FT_CEIL(metrics.height - metrics.ascender + metrics.descender);
-        m_info.MaxAdvanceWidth = (float)FT_CEIL(metrics.max_advance);
+        FT_Size_Metrics metrics = FreetypeFace->size->metrics;
+        Info.PixelHeight = (uint32_t)pixel_height;
+        Info.Ascender = (float)FT_CEIL(metrics.ascender);
+        Info.Descender = (float)FT_CEIL(metrics.descender);
+        Info.LineSpacing = (float)FT_CEIL(metrics.height);
+        Info.LineGap = (float)FT_CEIL(metrics.height - metrics.ascender + metrics.descender);
+        Info.MaxAdvanceWidth = (float)FT_CEIL(metrics.max_advance);
     }
 
     bool FreeTypeFont::CalcGlyphInfo(uint32_t codepoint, GlyphInfo &glyph_info, FT_Glyph& ft_glyph, FT_BitmapGlyph& ft_bitmap)
     {
-        uint32_t glyph_index = FT_Get_Char_Index(m_face, codepoint);
-        FT_Error error = FT_Load_Glyph(m_face, glyph_index, m_freetype_flags);
+        uint32_t glyph_index = FT_Get_Char_Index(FreetypeFace, codepoint);
+        FT_Error error = FT_Load_Glyph(FreetypeFace, glyph_index, FreetypeLoadFlags);
         if (error)
             return false;
 
         // Need an outline for this to work
-        FT_GlyphSlot slot = m_face->glyph;
+        FT_GlyphSlot slot = FreetypeFace->glyph;
         IM_ASSERT(slot->format == FT_GLYPH_FORMAT_OUTLINE);
 
-        if (m_user_flags & ImGuiFreeType::Bold)
+        if (UserFlags & ImGuiFreeType::Bold)
             FT_GlyphSlot_Embolden(slot);
-        if (m_user_flags & ImGuiFreeType::Oblique)
+        if (UserFlags & ImGuiFreeType::Oblique)
             FT_GlyphSlot_Oblique(slot);
 
         // Retrieve the glyph
@@ -264,8 +257,8 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
         if (!font_face.Init(cfg, extra_flags))
             return false;
 
-        max_glyph_size.x = ImMax(max_glyph_size.x, font_face.m_info.MaxAdvanceWidth);
-        max_glyph_size.y = ImMax(max_glyph_size.y, font_face.m_info.Ascender - font_face.m_info.Descender);
+        max_glyph_size.x = ImMax(max_glyph_size.x, font_face.Info.MaxAdvanceWidth);
+        max_glyph_size.y = ImMax(max_glyph_size.y, font_face.Info.Ascender - font_face.Info.Descender);
 
         if (!cfg.GlyphRanges)
             cfg.GlyphRanges = atlas->GetGlyphRangesDefault();
@@ -307,8 +300,8 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
         FreeTypeFont& font_face = fonts[input_i];
         ImFont* dst_font = cfg.DstFont;
 
-        const float ascent = font_face.m_info.Ascender;
-        const float descent = font_face.m_info.Descender;
+        const float ascent = font_face.Info.Ascender;
+        const float descent = font_face.Info.Descender;
         ImFontAtlasBuildSetupFont(atlas, dst_font, &cfg, ascent, descent);
         const float off_x = cfg.GlyphOffset.x;
         const float off_y = cfg.GlyphOffset.y + (float)(int)(dst_font->Ascent + 0.5f);
