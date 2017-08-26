@@ -4,15 +4,15 @@
 
 // Changelog:
 // - v0.50: imported from https://github.com/Vuhdo/imgui_freetype, updated for latest changes in ImFontAtlas, minor tweaks.
-// - v0.51: cleanup, optimizations, support for ImFontConfig::RasterizerFlags
+// - v0.51: cleanup, optimizations, support for ImFontConfig::RasterizerFlags, ImFontConfig::RasterizerMultiply.
 
 #include "imgui_freetype.h"
+#include "imgui_internal.h"   // ImMin,ImMax,ImFontAtlasBuild*,
 #include <stdint.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
 #include FT_SYNTHESIS_H
-#include "imgui_internal.h"
 
 #ifdef _MSC_VER
 #pragma warning (disable: 4505) // unreferenced local function has been removed (stb stuff)
@@ -291,6 +291,7 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
         unsigned font_flags = cfg.RasterizerFlags | extra_flags;
         ImFont* dst_font = cfg.DstFont;
 
+        // Convert to freetype flags (nb: Bold and Oblique are processed separately).
         FT_Int32 freetype_flags = FT_LOAD_NO_BITMAP;
         if (font_flags & ImGuiFreeType::NoHinting)      freetype_flags |= FT_LOAD_NO_HINTING;
         if (font_flags & ImGuiFreeType::NoAutoHint)     freetype_flags |= FT_LOAD_NO_AUTOHINT;
@@ -302,11 +303,16 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
         else                                                
             freetype_flags |= FT_LOAD_TARGET_NORMAL;
 
-        float ascent = font_face.m_info.Ascender;
-        float descent = font_face.m_info.Descender;
+        const float ascent = font_face.m_info.Ascender;
+        const float descent = font_face.m_info.Descender;
         ImFontAtlasBuildSetupFont(atlas, dst_font, &cfg, ascent, descent);
-        float off_x = cfg.GlyphOffset.x;
-        float off_y = cfg.GlyphOffset.y + (float)(int)(dst_font->Ascent + 0.5f);
+        const float off_x = cfg.GlyphOffset.x;
+        const float off_y = cfg.GlyphOffset.y + (float)(int)(dst_font->Ascent + 0.5f);
+
+        bool multiply_enabled = (cfg.RasterizerMultiply != 1.0f);
+        unsigned char multiply_table[256];
+        if (multiply_enabled)
+            ImFontAtlasBuildMultiplyCalcLookupTable(multiply_table, cfg.RasterizerMultiply);
 
         dst_font->FallbackGlyph = NULL; // Always clear fallback so FindGlyph can return NULL. It will be set again in BuildLookupTable()
         for (const ImWchar* in_range = cfg.GlyphRanges; in_range[0] && in_range[1]; in_range += 2) 
@@ -333,6 +339,8 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
                     src += glyph_bitmap.pitch;
                     dst += atlas->TexWidth;
                 }
+                if (multiply_enabled)
+                    ImFontAtlasBuildMultiplyRectAlpha8(multiply_table, atlas->TexPixelsAlpha8, rect.x, rect.y, rect.w, rect.h, atlas->TexWidth);
 
                 dst_font->Glyphs.resize(dst_font->Glyphs.Size + 1);
                 ImFont::Glyph& glyph = dst_font->Glyphs.back();
