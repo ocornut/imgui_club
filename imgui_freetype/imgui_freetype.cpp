@@ -3,12 +3,13 @@
 // Original code by @Vuhdo (Aleksei Skriabin)
 
 // Changelog:
-// - v0.50: imported from https://github.com/Vuhdo/imgui_freetype, updated for latest changes in ImFontAtlas, minor tweaks.
-// - v0.51: cleanup, optimizations, support for ImFontConfig::RasterizerFlags, ImFontConfig::RasterizerMultiply.
+// - v0.50: (2017/08/16) imported from https://github.com/Vuhdo/imgui_freetype, updated for latest changes in ImFontAtlas, minor tweaks.
+// - v0.51: (2017/08/26) cleanup, optimizations, support for ImFontConfig::RasterizerFlags, ImFontConfig::RasterizerMultiply.
+// - v0.52: (2017/09/26) fixes for imgui internal changes
 
 // Todo/Bugs:
 // - Font size has lots of waste.
-// - FreeType's memory allocator is not overriden.
+// - FreeType's memory allocator is not overridden.
 
 #include "imgui_freetype.h"
 #include "imgui_internal.h"   // ImMin,ImMax,ImFontAtlasBuild*,
