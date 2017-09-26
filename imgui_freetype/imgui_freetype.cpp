@@ -353,15 +353,13 @@ bool ImGuiFreeType::BuildFontAtlas(ImFontAtlas* atlas, unsigned int extra_flags)
                     glyph_info.AdvanceX);
             }
         }
-        cfg.DstFont->BuildLookupTable();
     }
 
     // Cleanup
     for (int n = 0; n < fonts.Size; n++)
         fonts[n].Shutdown();
 
-    // Render into our custom data block
-    ImFontAtlasBuildRenderDefaultTexData(atlas);
+    ImFontAtlasBuildFinish(atlas);
 
     return true;
 }
