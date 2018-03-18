@@ -1,3 +1,9 @@
+Those are officially maintained.
+You can find various useful third-party snippets here:
+https://github.com/ocornut/imgui/wiki
+
+----
+
 # imgui_freetype
 
 Note: imgui_freetype.cpp has been moved from imgui_club into the main imgui repository, inside the `misc/freetype/` folder:
