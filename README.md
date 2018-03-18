@@ -1,5 +1,5 @@
 Those are officially maintained.
-You can find various useful third-party snippets here:
+You also can find various useful third-party snippets here:
 https://github.com/ocornut/imgui/wiki
 
 ----
