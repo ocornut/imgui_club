@@ -172,7 +172,7 @@ struct MemoryEditor
         ImGuiStyle& style = ImGui::GetStyle();
 
         const float footer_height_to_reserve = ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing(); // 1 separator, 1 input text
-        ImGui::BeginChild("##scrolling", ImVec2(0, -footer_height_to_reserve));
+        ImGui::BeginChild("##scrolling", ImVec2(0, -footer_height_to_reserve), false, ImGuiWindowFlags_NoMove);
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
