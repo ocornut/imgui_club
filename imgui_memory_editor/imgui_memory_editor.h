@@ -30,6 +30,7 @@
 // - v0.21: fixes for using DrawContents() in our own window. fixed HexII to actually be useful and not on the wrong side.
 // - v0.22: clicking Ascii view select the byte in the Hex view. Ascii view highlight selection.
 // - v0.23: fixed right-arrow triggering a byte write
+// - v0.24: changed DragInt("Rows" to use a %d data format (which is desirable since imgui 1.61)
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -380,10 +381,10 @@ struct MemoryEditor
         if (ImGui::BeginPopup("context"))
         {
             ImGui::PushItemWidth(56);
-            if (ImGui::DragInt("##rows", &Rows, 0.2f, 4, 32, "%d rows")) ContentsWidthChanged = true;
+            if (ImGui::DragInt("##rows", &Rows, 0.2f, 4, 32, "%d rows")) { ContentsWidthChanged = true; }
             ImGui::PopItemWidth();
             ImGui::Checkbox("Show HexII", &OptShowHexII);
-            if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) ContentsWidthChanged = true;
+            if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
             ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
             ImGui::EndPopup();
         }
