@@ -29,12 +29,13 @@
 // - v0.20: added options menu. added OptShowAscii checkbox. added optional HexII display. split Draw() in DrawWindow()/DrawContents(). fixing glyph width. refactoring/cleaning code.
 // - v0.21: fixes for using DrawContents() in our own window. fixed HexII to actually be useful and not on the wrong side.
 // - v0.22: clicking Ascii view select the byte in the Hex view. Ascii view highlight selection.
-// - v0.23: fixed right-arrow triggering a byte write
-// - v0.24: changed DragInt("Rows" to use a %d data format (which is desirable since imgui 1.61)
-// - v0.25: Fix wording - Rows are really Columns
+// - v0.23: fixed right-arrow triggering a byte write.
+// - v0.24: changed DragInt("Rows" to use a %d data format (which is desirable since imgui 1.61).
+// - v0.25: fixed wording: all occurrences of "Rows" renamed to "Columns".
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
+// - Using InputText() is awkward and maybe overkill here, consider implementing something custom.
 
 #pragma once
 #include <stdio.h>  // sprintf, scanf
