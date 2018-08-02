@@ -56,9 +56,9 @@ struct MemoryEditor
     int             OptMidColsCount;                        // = 8      // set to 0 to disable extra spacing between every mid-cols
     int             OptAddrDigitsCount;                     // = 0      // number of addr digits to display (default calculated based on maximum displayed addr)
     ImU32           HighlightColor;                         //          // color of highlight
-    u8              (*ReadFn)(u8* data, size_t off);        // = NULL   // optional handler to read bytes
+    u8              (*ReadFn)(const u8* data, size_t off);  // = NULL   // optional handler to read bytes
     void            (*WriteFn)(u8* data, size_t off, u8 d); // = NULL   // optional handler to write bytes
-    bool            (*HighlightFn)(u8* data, size_t off);   // = NULL   // optional handler to return Highlight property (to support non-contiguous highlighting)
+    bool            (*HighlightFn)(const u8* data, size_t off);//NULL   // optional handler to return Highlight property (to support non-contiguous highlighting)
 
     // State/Internals
     bool            ContentsWidthChanged;
