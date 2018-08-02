@@ -32,6 +32,7 @@
 // - v0.23: fixed right-arrow triggering a byte write.
 // - v0.24: changed DragInt("Rows" to use a %d data format (which is desirable since imgui 1.61).
 // - v0.25: fixed wording: all occurrences of "Rows" renamed to "Columns".
+// - v0.26: fixed clicking on hex region
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -173,6 +174,8 @@ struct MemoryEditor
         CalcSizes(s, mem_size, base_display_addr);
         ImGuiStyle& style = ImGui::GetStyle();
 
+        // We begin into our scrolling region with the 'ImGuiWindowFlags_NoMove' in order to prevent click from moving the window.
+        // This is used as a facility since our main click detection code doesn't assign an ActiveId so the click would normally be caught as a window-move.
         const float footer_height_to_reserve = ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing(); // 1 separator, 1 input text
         ImGui::BeginChild("##scrolling", ImVec2(0, -footer_height_to_reserve), false, ImGuiWindowFlags_NoMove);
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
