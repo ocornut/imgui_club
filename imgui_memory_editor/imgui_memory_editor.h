@@ -599,7 +599,7 @@ struct MemoryEditor
     void DisplayPreviewData(size_t addr, const u8* mem_data, size_t mem_size, DataType data_type, DataFormat data_format, char* out_buf, size_t out_buf_size) const
     {
         uint8_t buf[8];
-        int elem_size = DataTypeGetSize(data_type);
+        size_t elem_size = DataTypeGetSize(data_type);
         size_t size = addr + elem_size > mem_size ? mem_size - addr : elem_size;
         if (ReadFn)
             for (int i = 0, n = (int)size; i < n; ++i)
@@ -609,7 +609,7 @@ struct MemoryEditor
 
         if (data_format == DataFormat_Bin)
         {
-            snprintf(out_buf, out_buf_size, "%s", FormatBinary(buf, size * 8));
+            snprintf(out_buf, out_buf_size, "%s", FormatBinary(buf, (int)size * 8));
             return;
         }
 
