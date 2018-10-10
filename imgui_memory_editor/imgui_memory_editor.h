@@ -35,6 +35,7 @@
 // - v0.25: fixed wording: all occurrences of "Rows" renamed to "Columns".
 // - v0.26: fixed clicking on hex region
 // - v0.30: added data preview for common data types
+// - v0.31: added OptUpperCaseHex option to select lower/upper casing display [@samhocevar]
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -263,11 +264,11 @@ struct MemoryEditor
         const ImU32 color_text = ImGui::GetColorU32(ImGuiCol_Text);
         const ImU32 color_disabled = OptGreyOutZeroes ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : color_text;
 
-        const char *format_address = OptUpperCaseHex ? "%0*" _PRISizeT "X: " : "%0*" _PRISizeT "x: ";
-        const char *format_data = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
-        const char *format_range = OptUpperCaseHex ? "Range %0*" _PRISizeT "X..%0*" _PRISizeT "X" : "Range %0*" _PRISizeT "x..%0*" _PRISizeT "x";
-        const char *format_byte = OptUpperCaseHex ? "%02X" : "%02x";
-        const char *format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
+        const char* format_address = OptUpperCaseHex ? "%0*" _PRISizeT "X: " : "%0*" _PRISizeT "x: ";
+        const char* format_data = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
+        const char* format_range = OptUpperCaseHex ? "Range %0*" _PRISizeT "X..%0*" _PRISizeT "X" : "Range %0*" _PRISizeT "x..%0*" _PRISizeT "x";
+        const char* format_byte = OptUpperCaseHex ? "%02X" : "%02x";
+        const char* format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
 
         for (int line_i = clipper.DisplayStart; line_i < clipper.DisplayEnd; line_i++) // display only visible lines
         {
