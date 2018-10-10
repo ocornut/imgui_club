@@ -36,6 +36,7 @@
 // - v0.26: fixed clicking on hex region
 // - v0.30: added data preview for common data types
 // - v0.31: added OptUpperCaseHex option to select lower/upper casing display [@samhocevar]
+// - v0.32: changed signatures to use void* instead of unsigned char*
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -183,7 +184,7 @@ struct MemoryEditor
     }
 
     // Standalone Memory Editor window
-    void DrawWindow(const char* title, u8* mem_data, size_t mem_size, size_t base_display_addr = 0x0000)
+    void DrawWindow(const char* title, void* mem_data, size_t mem_size, size_t base_display_addr = 0x0000)
     {
         Sizes s;
         CalcSizes(s, mem_size, base_display_addr);
@@ -205,8 +206,9 @@ struct MemoryEditor
     }
 
     // Memory Editor contents only
-    void DrawContents(u8* mem_data, size_t mem_size, size_t base_display_addr = 0x0000)
+    void DrawContents(void* mem_data_void_ptr, size_t mem_size, size_t base_display_addr = 0x0000)
     {
+        u8* mem_data = (u8*)mem_data_void_ptr;
         Sizes s;
         CalcSizes(s, mem_size, base_display_addr);
         ImGuiStyle& style = ImGui::GetStyle();
