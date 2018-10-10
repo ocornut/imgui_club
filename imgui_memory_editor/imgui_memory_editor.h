@@ -37,6 +37,7 @@
 // - v0.30: added data preview for common data types
 // - v0.31: added OptUpperCaseHex option to select lower/upper casing display [@samhocevar]
 // - v0.32: changed signatures to use void* instead of unsigned char*
+// - v0.33: added OptShowOptions option to hide all the interactive option setting.
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -81,23 +82,23 @@ struct MemoryEditor
     };
 
     // Settings
-    bool            Open;                                   // = true   // set to false when DrawWindow() was closed. ignore if not using DrawWindow
-    bool            ReadOnly;                               // = false  // set to true to disable any editing
-    int             Cols;                                   // = 16     //
-    bool            OptShowOptions;                         // = true   //
-    bool            OptShowDataPreview;                     // = false  //
-    bool            OptShowHexII;                           // = false  //
-    bool            OptShowAscii;                           // = true   //
-    bool            OptGreyOutZeroes;                       // = true   //
-    bool            OptUpperCaseHex;                        // = true   //
-    int             OptMidColsCount;                        // = 8      // set to 0 to disable extra spacing between every mid-cols
-    int             OptAddrDigitsCount;                     // = 0      // number of addr digits to display (default calculated based on maximum displayed addr)
-    ImU32           HighlightColor;                         //          // color of highlight
-    u8              (*ReadFn)(const u8* data, size_t off);  // = NULL   // optional handler to read bytes
-    void            (*WriteFn)(u8* data, size_t off, u8 d); // = NULL   // optional handler to write bytes
-    bool            (*HighlightFn)(const u8* data, size_t off);//NULL   // optional handler to return Highlight property (to support non-contiguous highlighting)
+    bool            Open;                                   // = true   // set to false when DrawWindow() was closed. ignore if not using DrawWindow().
+    bool            ReadOnly;                               // = false  // disable any editing.
+    int             Cols;                                   // = 16     // number of columns to display.
+    bool            OptShowOptions;                         // = true   // display options button/context menu. when disabled, options will be locked unless you provide your own UI for them.
+    bool            OptShowDataPreview;                     // = false  // display a footer previewing the decimal/binary/hex/float representation of the currently selected bytes.
+    bool            OptShowHexII;                           // = false  // display values in HexII representation instead of regular hexadecimal: hide null/zero bytes, ascii values as ".X".
+    bool            OptShowAscii;                           // = true   // display ASCII representation on the right side.
+    bool            OptGreyOutZeroes;                       // = true   // display null/zero bytes using the TextDisabled color.
+    bool            OptUpperCaseHex;                        // = true   // display hexadecimal values as "FF" instead of "ff".
+    int             OptMidColsCount;                        // = 8      // set to 0 to disable extra spacing between every mid-cols.
+    int             OptAddrDigitsCount;                     // = 0      // number of addr digits to display (default calculated based on maximum displayed addr).
+    ImU32           HighlightColor;                         //          // background color of highlighted bytes.
+    u8              (*ReadFn)(const u8* data, size_t off);  // = NULL   // optional handler to read bytes.
+    void            (*WriteFn)(u8* data, size_t off, u8 d); // = NULL   // optional handler to write bytes.
+    bool            (*HighlightFn)(const u8* data, size_t off);//NULL   // optional handler to return Highlight property (to support non-contiguous highlighting).
 
-    // State/Internals
+    // [Internal State]
     bool            ContentsWidthChanged;
     size_t          DataPreviewAddr;
     size_t          DataEditingAddr;
