@@ -45,10 +45,10 @@
 #include <stdint.h>     // uint8_t, etc.
 
 #ifdef _MSC_VER
-#define _PRISizeT   "IX"
+#define _PRISizeT   "I"
 #define snprintf    _snprintf
 #else
-#define _PRISizeT   "zX"
+#define _PRISizeT   "z"
 #endif
 
 struct MemoryEditor
@@ -86,6 +86,7 @@ struct MemoryEditor
     bool            OptShowHexII;                           // = false  //
     bool            OptShowAscii;                           // = true   //
     bool            OptGreyOutZeroes;                       // = true   //
+    bool            OptUpperCaseHex;                        // = true   //
     int             OptMidColsCount;                        // = 8      // set to 0 to disable extra spacing between every mid-cols
     int             OptAddrDigitsCount;                     // = 0      // number of addr digits to display (default calculated based on maximum displayed addr)
     ImU32           HighlightColor;                         //          // color of highlight
@@ -115,6 +116,7 @@ struct MemoryEditor
         OptShowHexII = false;
         OptShowAscii = true;
         OptGreyOutZeroes = true;
+        OptUpperCaseHex = true;
         OptMidColsCount = 8;
         OptAddrDigitsCount = 0;
         HighlightColor = IM_COL32(255, 255, 255, 50);
@@ -261,10 +263,16 @@ struct MemoryEditor
         const ImU32 color_text = ImGui::GetColorU32(ImGuiCol_Text);
         const ImU32 color_disabled = OptGreyOutZeroes ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : color_text;
 
+        const char *format_address = OptUpperCaseHex ? "%0*" _PRISizeT "X: " : "%0*" _PRISizeT "x: ";
+        const char *format_data = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
+        const char *format_range = OptUpperCaseHex ? "Range %0*" _PRISizeT "X..%0*" _PRISizeT "X" : "Range %0*" _PRISizeT "x..%0*" _PRISizeT "x";
+        const char *format_byte = OptUpperCaseHex ? "%02X" : "%02x";
+        const char *format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
+
         for (int line_i = clipper.DisplayStart; line_i < clipper.DisplayEnd; line_i++) // display only visible lines
         {
             size_t addr = (size_t)(line_i * Cols);
-            ImGui::Text("%0*" _PRISizeT ": ", s.AddrDigitsCount, base_display_addr + addr);
+            ImGui::Text(format_address, s.AddrDigitsCount, base_display_addr + addr);
 
             // Draw Hexadecimal
             for (int n = 0; n < Cols && addr < mem_size; n++, addr++)
@@ -301,8 +309,8 @@ struct MemoryEditor
                     {
                         ImGui::SetKeyboardFocusHere();
                         ImGui::CaptureKeyboardFromApp(true);
-                        sprintf(AddrInputBuf, "%0*" _PRISizeT, s.AddrDigitsCount, base_display_addr + addr);
-                        sprintf(DataInputBuf, "%02X", ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
+                        sprintf(AddrInputBuf, format_data, s.AddrDigitsCount, base_display_addr + addr);
+                        sprintf(DataInputBuf, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                     }
                     ImGui::PushItemWidth(s.GlyphWidth * 2);
                     struct UserData
@@ -328,7 +336,7 @@ struct MemoryEditor
                     };
                     UserData user_data;
                     user_data.CursorPos = -1;
-                    sprintf(user_data.CurrentBufOverwrite, "%02X", ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
+                    sprintf(user_data.CurrentBufOverwrite, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                     ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_NoHorizontalScroll | ImGuiInputTextFlags_AlwaysInsertMode | ImGuiInputTextFlags_CallbackAlways;
                     if (ImGui::InputText("##data", DataInputBuf, 32, flags, UserData::Callback, &user_data))
                         data_write = data_next = true;
@@ -364,14 +372,14 @@ struct MemoryEditor
                         else if (b == 0x00)
                             ImGui::Text("   ");
                         else
-                            ImGui::Text("%02X ", b);
+                            ImGui::Text(format_byte_space, b);
                     }
                     else
                     {
                         if (b == 0 && OptGreyOutZeroes)
                             ImGui::TextDisabled("00 ");
                         else
-                            ImGui::Text("%02X ", b);
+                            ImGui::Text(format_byte_space, b);
                     }
                     if (!ReadOnly && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
                     {
@@ -438,18 +446,19 @@ struct MemoryEditor
             ImGui::Checkbox("Show HexII", &OptShowHexII);
             if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
             ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
+            ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
 
             ImGui::EndPopup();
         }
 
         ImGui::SameLine();
-        ImGui::Text("Range %0*" _PRISizeT "..%0*" _PRISizeT, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
+        ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
         ImGui::SameLine();
         ImGui::PushItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
         if (ImGui::InputText("##addr", AddrInputBuf, 32, ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
         {
             size_t goto_addr;
-            if (sscanf(AddrInputBuf, "%" _PRISizeT, &goto_addr) == 1)
+            if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
             {
                 GotoAddr = goto_addr - base_display_addr;
                 HighlightMin = HighlightMax = (size_t)-1;
