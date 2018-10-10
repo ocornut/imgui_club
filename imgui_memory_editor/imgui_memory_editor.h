@@ -84,6 +84,7 @@ struct MemoryEditor
     bool            Open;                                   // = true   // set to false when DrawWindow() was closed. ignore if not using DrawWindow
     bool            ReadOnly;                               // = false  // set to true to disable any editing
     int             Cols;                                   // = 16     //
+    bool            OptShowOptions;                         // = true   //
     bool            OptShowDataPreview;                     // = false  //
     bool            OptShowHexII;                           // = false  //
     bool            OptShowAscii;                           // = true   //
@@ -114,6 +115,7 @@ struct MemoryEditor
         Open = true;
         ReadOnly = false;
         Cols = 16;
+        OptShowOptions = true;
         OptShowDataPreview = false;
         OptShowHexII = false;
         OptShowAscii = true;
@@ -216,7 +218,9 @@ struct MemoryEditor
         // We begin into our scrolling region with the 'ImGuiWindowFlags_NoMove' in order to prevent click from moving the window.
         // This is used as a facility since our main click detection code doesn't assign an ActiveId so the click would normally be caught as a window-move.
         const float height_separator = style.ItemSpacing.y;
-        float footer_height = height_separator + ImGui::GetFrameHeightWithSpacing() * 1;
+        float footer_height = 0;
+        if (OptShowOptions)
+            footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1;
         if (OptShowDataPreview)
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing() * 3;
         ImGui::BeginChild("##scrolling", ImVec2(0, -footer_height), false, ImGuiWindowFlags_NoMove);
@@ -433,53 +437,56 @@ struct MemoryEditor
             DataEditingAddr = DataPreviewAddr = data_editing_addr_next;
         }
 
-        ImGui::Separator();
-
-        // Options menu
-        
         bool next_show_data_preview = OptShowDataPreview;
-        if (ImGui::Button("Options"))
-            ImGui::OpenPopup("context");
-        if (ImGui::BeginPopup("context"))
+        if (OptShowOptions)
         {
-            ImGui::PushItemWidth(56);
-            if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; }
+            ImGui::Separator();
+
+            // Options menu
+
+            if (ImGui::Button("Options"))
+                ImGui::OpenPopup("context");
+            if (ImGui::BeginPopup("context"))
+            {
+                ImGui::PushItemWidth(56);
+                if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; }
+                ImGui::PopItemWidth();
+                ImGui::Checkbox("Show Data Preview", &next_show_data_preview);
+                ImGui::Checkbox("Show HexII", &OptShowHexII);
+                if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
+                ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
+                ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
+
+                ImGui::EndPopup();
+            }
+
+            ImGui::SameLine();
+            ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
+            ImGui::SameLine();
+            ImGui::PushItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
+            if (ImGui::InputText("##addr", AddrInputBuf, 32, ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
+            {
+                size_t goto_addr;
+                if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
+                {
+                    GotoAddr = goto_addr - base_display_addr;
+                    HighlightMin = HighlightMax = (size_t)-1;
+                }
+            }
             ImGui::PopItemWidth();
-            ImGui::Checkbox("Show Data Preview", &next_show_data_preview);
-            ImGui::Checkbox("Show HexII", &OptShowHexII);
-            if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
-            ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
-            ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
 
-            ImGui::EndPopup();
-        }
-
-        ImGui::SameLine();
-        ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
-        ImGui::SameLine();
-        ImGui::PushItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
-        if (ImGui::InputText("##addr", AddrInputBuf, 32, ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
-        {
-            size_t goto_addr;
-            if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
+            if (GotoAddr != (size_t)-1)
             {
-                GotoAddr = goto_addr - base_display_addr;
-                HighlightMin = HighlightMax = (size_t)-1;
+                if (GotoAddr < mem_size)
+                {
+                    ImGui::BeginChild("##scrolling");
+                    ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + (GotoAddr / Cols) * ImGui::GetTextLineHeight());
+                    ImGui::EndChild();
+                    DataEditingAddr = DataPreviewAddr = GotoAddr;
+                    DataEditingTakeFocus = true;
+                }
+                GotoAddr = (size_t)-1;
             }
-        }
-        ImGui::PopItemWidth();
-
-        if (GotoAddr != (size_t)-1)
-        {
-            if (GotoAddr < mem_size)
-            {
-                ImGui::BeginChild("##scrolling");
-                ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + (GotoAddr / Cols) * ImGui::GetTextLineHeight());
-                ImGui::EndChild();
-                DataEditingAddr = DataPreviewAddr = GotoAddr;
-                DataEditingTakeFocus = true;
-            }
-            GotoAddr = (size_t)-1;
         }
 
         if (OptShowDataPreview)
