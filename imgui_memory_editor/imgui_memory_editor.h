@@ -722,3 +722,6 @@ struct MemoryEditor
 };
 
 #undef _PRISizeT
+#ifdef _MSC_VER
+#undef snprintf
+#endif
