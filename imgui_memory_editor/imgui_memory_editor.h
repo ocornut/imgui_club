@@ -49,9 +49,10 @@
 
 #ifdef _MSC_VER
 #define _PRISizeT   "I"
-#define snprintf    _snprintf
+#define ImSnprintf  _snprintf
 #else
 #define _PRISizeT   "z"
+#define ImSnprintf  snprintf
 #endif
 
 struct MemoryEditor
@@ -629,7 +630,7 @@ struct MemoryEditor
 
         if (data_format == DataFormat_Bin)
         {
-            snprintf(out_buf, out_buf_size, "%s", FormatBinary(buf, (int)size * 8));
+            ImSnprintf(out_buf, out_buf_size, "%s", FormatBinary(buf, (int)size * 8));
             return;
         }
 
@@ -640,80 +641,80 @@ struct MemoryEditor
         {
             int8_t int8 = 0;
             EndianessCopy(&int8, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%hhd", int8); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%02x", int8 & 0xFF); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hhd", int8); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%02x", int8 & 0xFF); return; }
             break;
         }
         case DataType_U8:
         {
             uint8_t uint8 = 0;
             EndianessCopy(&uint8, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%hhu", uint8); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%02x", uint8 & 0XFF); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hhu", uint8); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%02x", uint8 & 0XFF); return; }
             break;
         }
         case DataType_S16:
         {
             int16_t int16 = 0;
             EndianessCopy(&int16, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%hd", int16); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%04x", int16 & 0xFFFF); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hd", int16); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%04x", int16 & 0xFFFF); return; }
             break;
         }
         case DataType_U16:
         {
             uint16_t uint16 = 0;
             EndianessCopy(&uint16, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%hu", uint16); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%04x", uint16 & 0xFFFF); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hu", uint16); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%04x", uint16 & 0xFFFF); return; }
             break;
         }
         case DataType_S32:
         {
             int32_t int32 = 0;
             EndianessCopy(&int32, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%d", int32); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%08x", int32); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%d", int32); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08x", int32); return; }
             break;
         }
         case DataType_U32:
         {
             uint32_t uint32 = 0;
             EndianessCopy(&uint32, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%u", uint32); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%08x", uint32); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%u", uint32); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08x", uint32); return; }
             break;
         }
         case DataType_S64:
         {
             int64_t int64 = 0;
             EndianessCopy(&int64, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%lld", (long long)int64); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%016llx", (long long)int64); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%lld", (long long)int64); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%016llx", (long long)int64); return; }
             break;
         }
         case DataType_U64:
         {
             uint64_t uint64 = 0;
             EndianessCopy(&uint64, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%llu", (long long)uint64); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "0x%016llx", (long long)uint64); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%llu", (long long)uint64); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%016llx", (long long)uint64); return; }
             break;
         }
         case DataType_Float:
         {
             float float32 = 0.0f;
             EndianessCopy(&float32, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%f", float32); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "%a", float32); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%f", float32); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "%a", float32); return; }
             break;
         }
         case DataType_Double:
         {
             double float64 = 0.0;
             EndianessCopy(&float64, buf, size);
-            if (data_format == DataFormat_Dec) { snprintf(out_buf, out_buf_size, "%f", float64); return; }
-            if (data_format == DataFormat_Hex) { snprintf(out_buf, out_buf_size, "%a", float64); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%f", float64); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "%a", float64); return; }
             break;
         }
         } // Switch
@@ -722,3 +723,4 @@ struct MemoryEditor
 };
 
 #undef _PRISizeT
+#undef ImSnprintf
