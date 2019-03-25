@@ -180,7 +180,7 @@ struct MemoryEditor
         {
             s.PosAsciiStart = s.PosHexEnd + s.GlyphWidth * 1;
             if (OptMidColsCount > 0)
-                s.PosAsciiStart += ((Cols + OptMidColsCount - 1) / OptMidColsCount) * s.SpacingBetweenMidCols;
+                s.PosAsciiStart += (float)((Cols + OptMidColsCount - 1) / OptMidColsCount) * s.SpacingBetweenMidCols;
             s.PosAsciiEnd = s.PosAsciiStart + Cols * s.GlyphWidth;
         }
         s.WindowWidth = s.PosAsciiEnd + style.ScrollbarSize + style.WindowPadding.x * 2 + s.GlyphWidth;
@@ -287,7 +287,7 @@ struct MemoryEditor
             {
                 float byte_pos_x = s.PosHexStart + s.HexCellWidth * n;
                 if (OptMidColsCount > 0)
-                    byte_pos_x += (n / OptMidColsCount) * s.SpacingBetweenMidCols;
+                    byte_pos_x += (float)(n / OptMidColsCount) * s.SpacingBetweenMidCols;
                 ImGui::SameLine(byte_pos_x);
 
                 // Draw highlight
@@ -356,7 +356,7 @@ struct MemoryEditor
                         data_write = data_next = true;
                     if (data_editing_addr_next != (size_t)-1)
                         data_write = data_next = false;
-                    int data_input_value;
+                    unsigned int data_input_value = 0;
                     if (data_write && sscanf(DataInputBuf, "%X", &data_input_value) == 1)
                     {
                         if (WriteFn)
@@ -611,8 +611,8 @@ struct MemoryEditor
                 out_buf[out_n++] = (buf[j] & (1 << (7 - i))) ? '1' : '0';
             out_buf[out_n++] = ' ';
         }
-        out_buf[out_n] = 0;
         IM_ASSERT(out_n < IM_ARRAYSIZE(out_buf));
+        out_buf[out_n] = 0;
         return out_buf;
     }
 
