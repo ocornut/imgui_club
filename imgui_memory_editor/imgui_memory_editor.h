@@ -38,6 +38,7 @@
 // - v0.31: added OptUpperCaseHex option to select lower/upper casing display [@samhocevar]
 // - v0.32: changed signatures to use void* instead of unsigned char*
 // - v0.33: added OptShowOptions option to hide all the interactive option setting.
+// - v0.34: binary preview now applies endianess setting [@nicolasnoble]
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -606,7 +607,8 @@ struct MemoryEditor
         IM_ASSERT(width <= 64);
         size_t out_n = 0;
         static char out_buf[64 + 8 + 1];
-        for (int j = 0, n = width / 8; j < n; ++j)
+        int n = width / 8;
+        for (int j = n - 1; j >= 0; --j)
         {
             for (int i = 0; i < 8; ++i)
                 out_buf[out_n++] = (buf[j] & (1 << (7 - i))) ? '1' : '0';
@@ -630,7 +632,9 @@ struct MemoryEditor
 
         if (data_format == DataFormat_Bin)
         {
-            ImSnprintf(out_buf, out_buf_size, "%s", FormatBinary(buf, (int)size * 8));
+            uint8_t binbuf[8];
+            EndianessCopy(binbuf, buf, size);
+            ImSnprintf(out_buf, out_buf_size, "%s", FormatBinary(binbuf, (int)size * 8));
             return;
         }
 
