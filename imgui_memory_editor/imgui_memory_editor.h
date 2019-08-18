@@ -162,6 +162,7 @@ struct MemoryEditor
         float   PosAsciiStart;
         float   PosAsciiEnd;
         float   WindowWidth;
+        float   WindowHeight;
     };
 
     void CalcSizes(Sizes& s, size_t mem_size, size_t base_display_addr)
@@ -186,14 +187,15 @@ struct MemoryEditor
             s.PosAsciiEnd = s.PosAsciiStart + Cols * s.GlyphWidth;
         }
         s.WindowWidth = s.PosAsciiEnd + style.ScrollbarSize + style.WindowPadding.x * 2 + s.GlyphWidth;
+        s.WindowHeight = s.WindowWidth / 2.0f;
     }
 
     // Standalone Memory Editor window
-    void DrawWindow(const char* title, void* mem_data, size_t mem_size, size_t base_display_addr = 0x0000)
+    bool DrawWindow(const char* title, void* mem_data, size_t mem_size, size_t base_display_addr = 0x0000)
     {
         Sizes s;
         CalcSizes(s, mem_size, base_display_addr);
-        ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(s.WindowWidth, FLT_MAX));
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(s.WindowWidth, s.WindowHeight));
 
         Open = true;
         if (ImGui::Begin(title, &Open, ImGuiWindowFlags_NoScrollbar))
@@ -208,6 +210,7 @@ struct MemoryEditor
             }
         }
         ImGui::End();
+        return Open;
     }
 
     // Memory Editor contents only
