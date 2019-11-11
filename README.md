@@ -4,13 +4,6 @@ https://github.com/ocornut/imgui/wiki
 
 ----
 
-# imgui_freetype
-
-Note: imgui_freetype.cpp has been moved from imgui_club into the main imgui repository, inside the `misc/freetype/` folder:
-https://github.com/ocornut/imgui/tree/master/misc/freetype
-
-----
-
 # imgui_memory_editor
 
 https://github.com/ocornut/imgui_club/tree/master/imgui_memory_editor
@@ -27,3 +20,11 @@ mem_edit.DrawWindow("Memory Editor", data, data_size);
 ![memory editor](https://raw.githubusercontent.com/wiki/ocornut/imgui_club/images/memory_editor_v19.gif)
 
 ![memory editor](https://raw.githubusercontent.com/wiki/ocornut/imgui_club/images/memory_editor_v32.png)
+
+----
+
+# imgui_freetype
+
+Note: imgui_freetype.cpp has been moved from imgui_club into the main imgui repository, inside the `misc/freetype/` folder:
+https://github.com/ocornut/imgui/tree/master/misc/freetype
+
