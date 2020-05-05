@@ -200,6 +200,9 @@ struct MemoryEditor
     // Memory Editor contents only
     void DrawContents(void* mem_data_void_ptr, size_t mem_size, size_t base_display_addr = 0x0000)
     {
+        if (Cols < 1)
+            Cols = 1;
+
         ImU8* mem_data = (ImU8*)mem_data_void_ptr;
         Sizes s;
         CalcSizes(s, mem_size, base_display_addr);
@@ -439,7 +442,7 @@ struct MemoryEditor
             if (ImGui::BeginPopup("context"))
             {
                 ImGui::PushItemWidth(56);
-                if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; }
+                if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; if (Cols < 1) Cols = 1; }
                 ImGui::PopItemWidth();
                 ImGui::Checkbox("Show Data Preview", &next_show_data_preview);
                 ImGui::Checkbox("Show HexII", &OptShowHexII);
