@@ -40,12 +40,14 @@
 // - v0.33: added OptShowOptions option to hide all the interactive option setting.
 // - v0.34: binary preview now applies endianness setting [@nicolasnoble]
 // - v0.35: using ImGuiDataType available since Dear ImGui 1.69.
+// - v0.36: minor tweaks, minor refactor.
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
 // - Using InputText() is awkward and maybe overkill here, consider implementing something custom.
 
 #pragma once
+
 #if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
 #define _CRT_SECURE_NO_WARNINGS
 #endif
@@ -71,21 +73,21 @@ struct MemoryEditor
     };
 
     // Settings
-    bool            Open;                                   // = true   // set to false when DrawWindow() was closed. ignore if not using DrawWindow().
-    bool            ReadOnly;                               // = false  // disable any editing.
-    int             Cols;                                   // = 16     // number of columns to display.
-    bool            OptShowOptions;                         // = true   // display options button/context menu. when disabled, options will be locked unless you provide your own UI for them.
-    bool            OptShowDataPreview;                     // = false  // display a footer previewing the decimal/binary/hex/float representation of the currently selected bytes.
-    bool            OptShowHexII;                           // = false  // display values in HexII representation instead of regular hexadecimal: hide null/zero bytes, ascii values as ".X".
-    bool            OptShowAscii;                           // = true   // display ASCII representation on the right side.
-    bool            OptGreyOutZeroes;                       // = true   // display null/zero bytes using the TextDisabled color.
-    bool            OptUpperCaseHex;                        // = true   // display hexadecimal values as "FF" instead of "ff".
-    int             OptMidColsCount;                        // = 8      // set to 0 to disable extra spacing between every mid-cols.
-    int             OptAddrDigitsCount;                     // = 0      // number of addr digits to display (default calculated based on maximum displayed addr).
-    ImU32           HighlightColor;                         //          // background color of highlighted bytes.
-    ImU8            (*ReadFn)(const ImU8* data, size_t off);     // = 0 // optional handler to read bytes.
-    void            (*WriteFn)(ImU8* data, size_t off, ImU8 d);  // = 0 // optional handler to write bytes.
-    bool            (*HighlightFn)(const ImU8* data, size_t off);// = 0 // optional handler to return Highlight property (to support non-contiguous highlighting).
+    bool            Open;                                       // = true   // set to false when DrawWindow() was closed. ignore if not using DrawWindow().
+    bool            ReadOnly;                                   // = false  // disable any editing.
+    int             Cols;                                       // = 16     // number of columns to display.
+    bool            OptShowOptions;                             // = true   // display options button/context menu. when disabled, options will be locked unless you provide your own UI for them.
+    bool            OptShowDataPreview;                         // = false  // display a footer previewing the decimal/binary/hex/float representation of the currently selected bytes.
+    bool            OptShowHexII;                               // = false  // display values in HexII representation instead of regular hexadecimal: hide null/zero bytes, ascii values as ".X".
+    bool            OptShowAscii;                               // = true   // display ASCII representation on the right side.
+    bool            OptGreyOutZeroes;                           // = true   // display null/zero bytes using the TextDisabled color.
+    bool            OptUpperCaseHex;                            // = true   // display hexadecimal values as "FF" instead of "ff".
+    int             OptMidColsCount;                            // = 8      // set to 0 to disable extra spacing between every mid-cols.
+    int             OptAddrDigitsCount;                         // = 0      // number of addr digits to display (default calculated based on maximum displayed addr).
+    ImU32           HighlightColor;                             //          // background color of highlighted bytes.
+    ImU8            (*ReadFn)(const ImU8* data, size_t off);    // = 0      // optional handler to read bytes.
+    void            (*WriteFn)(ImU8* data, size_t off, ImU8 d); // = 0      // optional handler to write bytes.
+    bool            (*HighlightFn)(const ImU8* data, size_t off);//= 0      // optional handler to return Highlight property (to support non-contiguous highlighting).
 
     // [Internal State]
     bool            ContentsWidthChanged;
@@ -149,6 +151,8 @@ struct MemoryEditor
         float   PosAsciiStart;
         float   PosAsciiEnd;
         float   WindowWidth;
+
+        Sizes() { memset(this, 0, sizeof(*this)); }
     };
 
     void CalcSizes(Sizes& s, size_t mem_size, size_t base_display_addr)
@@ -198,12 +202,12 @@ struct MemoryEditor
     }
 
     // Memory Editor contents only
-    void DrawContents(void* mem_data_void_ptr, size_t mem_size, size_t base_display_addr = 0x0000)
+    void DrawContents(void* mem_data_void, size_t mem_size, size_t base_display_addr = 0x0000)
     {
         if (Cols < 1)
             Cols = 1;
 
-        ImU8* mem_data = (ImU8*)mem_data_void_ptr;
+        ImU8* mem_data = (ImU8*)mem_data_void;
         Sizes s;
         CalcSizes(s, mem_size, base_display_addr);
         ImGuiStyle& style = ImGui::GetStyle();
@@ -265,7 +269,6 @@ struct MemoryEditor
 
         const char* format_address = OptUpperCaseHex ? "%0*" _PRISizeT "X: " : "%0*" _PRISizeT "x: ";
         const char* format_data = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
-        const char* format_range = OptUpperCaseHex ? "Range %0*" _PRISizeT "X..%0*" _PRISizeT "X" : "Range %0*" _PRISizeT "x..%0*" _PRISizeT "x";
         const char* format_byte = OptUpperCaseHex ? "%02X" : "%02x";
         const char* format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
 
@@ -430,96 +433,109 @@ struct MemoryEditor
             DataEditingAddr = DataPreviewAddr = data_editing_addr_next;
         }
 
-        bool next_show_data_preview = OptShowDataPreview;
+        const bool lock_show_data_preview = OptShowDataPreview;
         if (OptShowOptions)
         {
             ImGui::Separator();
-
-            // Options menu
-
-            if (ImGui::Button("Options"))
-                ImGui::OpenPopup("context");
-            if (ImGui::BeginPopup("context"))
-            {
-                ImGui::PushItemWidth(56);
-                if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; if (Cols < 1) Cols = 1; }
-                ImGui::PopItemWidth();
-                ImGui::Checkbox("Show Data Preview", &next_show_data_preview);
-                ImGui::Checkbox("Show HexII", &OptShowHexII);
-                if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
-                ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
-                ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
-
-                ImGui::EndPopup();
-            }
-
-            ImGui::SameLine();
-            ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
-            ImGui::SameLine();
-            ImGui::PushItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
-            if (ImGui::InputText("##addr", AddrInputBuf, 32, ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
-            {
-                size_t goto_addr;
-                if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
-                {
-                    GotoAddr = goto_addr - base_display_addr;
-                    HighlightMin = HighlightMax = (size_t)-1;
-                }
-            }
-            ImGui::PopItemWidth();
-
-            if (GotoAddr != (size_t)-1)
-            {
-                if (GotoAddr < mem_size)
-                {
-                    ImGui::BeginChild("##scrolling");
-                    ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + (GotoAddr / Cols) * ImGui::GetTextLineHeight());
-                    ImGui::EndChild();
-                    DataEditingAddr = DataPreviewAddr = GotoAddr;
-                    DataEditingTakeFocus = true;
-                }
-                GotoAddr = (size_t)-1;
-            }
+            DrawOptionsLine(s, mem_data, mem_size, base_display_addr);
         }
 
-        if (OptShowDataPreview)
+        if (lock_show_data_preview)
         {
             ImGui::Separator();
-            ImGui::AlignTextToFramePadding();
-            ImGui::Text("Preview as:");
-            ImGui::SameLine();
-            ImGui::PushItemWidth((s.GlyphWidth * 10.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
-            if (ImGui::BeginCombo("##combo_type", DataTypeGetDesc(PreviewDataType), ImGuiComboFlags_HeightLargest))
-            {
-                for (int n = 0; n < ImGuiDataType_COUNT; n++)
-                    if (ImGui::Selectable(DataTypeGetDesc((ImGuiDataType)n), PreviewDataType == n))
-                        PreviewDataType = (ImGuiDataType)n;
-                ImGui::EndCombo();
-            }
-            ImGui::PopItemWidth();
-            ImGui::SameLine();
-            ImGui::PushItemWidth((s.GlyphWidth * 6.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
-            ImGui::Combo("##combo_endianess", &PreviewEndianess, "LE\0BE\0\0");
-            ImGui::PopItemWidth();
-
-            char buf[128];
-            float x = s.GlyphWidth * 6.0f;
-            bool has_value = DataPreviewAddr != (size_t)-1;
-            if (has_value)
-                DisplayPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Dec, buf, (size_t)IM_ARRAYSIZE(buf));
-            ImGui::Text("Dec"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
-            if (has_value)
-                DisplayPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Hex, buf, (size_t)IM_ARRAYSIZE(buf));
-            ImGui::Text("Hex"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
-            if (has_value)
-                DisplayPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Bin, buf, (size_t)IM_ARRAYSIZE(buf));
-            ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+            DrawPreviewLine(s, mem_data, mem_size, base_display_addr);
         }
-
-        OptShowDataPreview = next_show_data_preview;
 
         // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
         ImGui::SetCursorPosX(s.WindowWidth);
+    }
+
+    void DrawOptionsLine(const Sizes& s, void* mem_data, size_t mem_size, size_t base_display_addr)
+    {
+        IM_UNUSED(mem_data);
+        ImGuiStyle& style = ImGui::GetStyle();
+        const char* format_range = OptUpperCaseHex ? "Range %0*" _PRISizeT "X..%0*" _PRISizeT "X" : "Range %0*" _PRISizeT "x..%0*" _PRISizeT "x";
+
+        // Options menu
+        if (ImGui::Button("Options"))
+            ImGui::OpenPopup("context");
+        if (ImGui::BeginPopup("context"))
+        {
+            ImGui::PushItemWidth(56);
+            if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; if (Cols < 1) Cols = 1; }
+            ImGui::PopItemWidth();
+            ImGui::Checkbox("Show Data Preview", &OptShowDataPreview);
+            ImGui::Checkbox("Show HexII", &OptShowHexII);
+            if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
+            ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
+            ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::SameLine();
+        ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
+        ImGui::SameLine();
+        ImGui::PushItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
+        if (ImGui::InputText("##addr", AddrInputBuf, 32, ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
+        {
+            size_t goto_addr;
+            if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
+            {
+                GotoAddr = goto_addr - base_display_addr;
+                HighlightMin = HighlightMax = (size_t)-1;
+            }
+        }
+        ImGui::PopItemWidth();
+
+        if (GotoAddr != (size_t)-1)
+        {
+            if (GotoAddr < mem_size)
+            {
+                ImGui::BeginChild("##scrolling");
+                ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + (GotoAddr / Cols) * ImGui::GetTextLineHeight());
+                ImGui::EndChild();
+                DataEditingAddr = DataPreviewAddr = GotoAddr;
+                DataEditingTakeFocus = true;
+            }
+            GotoAddr = (size_t)-1;
+        }
+    }
+
+    void DrawPreviewLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
+    {
+        IM_UNUSED(base_display_addr);
+        ImU8* mem_data = (ImU8*)mem_data_void;
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Preview as:");
+        ImGui::SameLine();
+        ImGui::PushItemWidth((s.GlyphWidth * 10.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+        if (ImGui::BeginCombo("##combo_type", DataTypeGetDesc(PreviewDataType), ImGuiComboFlags_HeightLargest))
+        {
+            for (int n = 0; n < ImGuiDataType_COUNT; n++)
+                if (ImGui::Selectable(DataTypeGetDesc((ImGuiDataType)n), PreviewDataType == n))
+                    PreviewDataType = (ImGuiDataType)n;
+            ImGui::EndCombo();
+        }
+        ImGui::PopItemWidth();
+        ImGui::SameLine();
+        ImGui::PushItemWidth((s.GlyphWidth * 6.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+        ImGui::Combo("##combo_endianess", &PreviewEndianess, "LE\0BE\0\0");
+        ImGui::PopItemWidth();
+
+        char buf[128];
+        float x = s.GlyphWidth * 6.0f;
+        bool has_value = DataPreviewAddr != (size_t)-1;
+        if (has_value)
+            DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Dec, buf, (size_t)IM_ARRAYSIZE(buf));
+        ImGui::Text("Dec"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+        if (has_value)
+            DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Hex, buf, (size_t)IM_ARRAYSIZE(buf));
+        ImGui::Text("Hex"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+        if (has_value)
+            DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Bin, buf, (size_t)IM_ARRAYSIZE(buf));
+        ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
     }
 
     // Utilities for Data Preview
@@ -609,7 +625,8 @@ struct MemoryEditor
         return out_buf;
     }
 
-    void DisplayPreviewData(size_t addr, const ImU8* mem_data, size_t mem_size, ImGuiDataType data_type, DataFormat data_format, char* out_buf, size_t out_buf_size) const
+    // [Internal]
+    void DrawPreviewData(size_t addr, const ImU8* mem_data, size_t mem_size, ImGuiDataType data_type, DataFormat data_format, char* out_buf, size_t out_buf_size) const
     {
         uint8_t buf[8];
         size_t elem_size = DataTypeGetSize(data_type);
