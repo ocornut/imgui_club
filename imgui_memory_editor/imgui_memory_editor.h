@@ -524,7 +524,7 @@ struct MemoryEditor
         ImGui::Combo("##combo_endianess", &PreviewEndianess, "LE\0BE\0\0");
         ImGui::PopItemWidth();
 
-        char buf[128];
+        char buf[128] = "";
         float x = s.GlyphWidth * 6.0f;
         bool has_value = DataPreviewAddr != (size_t)-1;
         if (has_value)
@@ -535,6 +535,7 @@ struct MemoryEditor
         ImGui::Text("Hex"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
         if (has_value)
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Bin, buf, (size_t)IM_ARRAYSIZE(buf));
+        buf[IM_ARRAYSIZE(buf) - 1] = 0;
         ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
     }
 
