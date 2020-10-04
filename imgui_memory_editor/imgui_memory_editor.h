@@ -22,30 +22,18 @@
 //
 // Changelog:
 // - v0.10: initial version
-// - v0.11: always refresh active text input with the latest byte from source memory if it's not being edited.
-// - v0.12: added OptMidRowsCount to allow extra spacing every XX rows.
-// - v0.13: added optional ReadFn/WriteFn handlers to access memory via a function. various warning fixes for 64-bits.
-// - v0.14: added GotoAddr member, added GotoAddrAndHighlight() and highlighting. fixed minor scrollbar glitch when resizing.
-// - v0.15: added maximum window width. minor optimization.
-// - v0.16: added OptGreyOutZeroes option. various sizing fixes when resizing using the "Rows" drag.
-// - v0.17: added HighlightFn handler for optional non-contiguous highlighting.
-// - v0.18: fixes for displaying 64-bits addresses, fixed mouse click gaps introduced in recent changes, cursor tracking scrolling fixes.
-// - v0.19: fixed auto-focus of next byte leaving WantCaptureKeyboard=false for one frame. we now capture the keyboard during that transition.
-// - v0.20: added options menu. added OptShowAscii checkbox. added optional HexII display. split Draw() in DrawWindow()/DrawContents(). fixing glyph width. refactoring/cleaning code.
-// - v0.21: fixes for using DrawContents() in our own window. fixed HexII to actually be useful and not on the wrong side.
-// - v0.22: clicking Ascii view select the byte in the Hex view. Ascii view highlight selection.
-// - v0.23: fixed right-arrow triggering a byte write.
-// - v0.24: changed DragInt("Rows" to use a %d data format (which is desirable since imgui 1.61).
-// - v0.25: fixed wording: all occurrences of "Rows" renamed to "Columns".
-// - v0.26: fixed clicking on hex region
-// - v0.30: added data preview for common data types
-// - v0.31: added OptUpperCaseHex option to select lower/upper casing display [@samhocevar]
-// - v0.32: changed signatures to use void* instead of unsigned char*
-// - v0.33: added OptShowOptions option to hide all the interactive option setting.
-// - v0.34: binary preview now applies endianness setting [@nicolasnoble]
-// - v0.35: using ImGuiDataType available since Dear ImGui 1.69.
-// - v0.36: minor tweaks, minor refactor.
-// - v0.37: fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working.
+// - v0.23 (2017/08/17): added to github. fixed right-arrow triggering a byte write.
+// - v0.24 (2018/06/02): changed DragInt("Rows" to use a %d data format (which is desirable since imgui 1.61).
+// - v0.25 (2018/07/11): fixed wording: all occurrences of "Rows" renamed to "Columns".
+// - v0.26 (2018/08/02): fixed clicking on hex region
+// - v0.30 (2018/08/02): added data preview for common data types
+// - v0.31 (2018/10/10): added OptUpperCaseHex option to select lower/upper casing display [@samhocevar]
+// - v0.32 (2018/10/10): changed signatures to use void* instead of unsigned char*
+// - v0.33 (2018/10/10): added OptShowOptions option to hide all the interactive option setting.
+// - v0.34 (2019/05/07): binary preview now applies endianness setting [@nicolasnoble]
+// - v0.35 (2020/01/29): using ImGuiDataType available since Dear ImGui 1.69.
+// - v0.36 (2020/05/05): minor tweaks, minor refactor.
+// - v0.37 (2020/10/04): fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working.
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
