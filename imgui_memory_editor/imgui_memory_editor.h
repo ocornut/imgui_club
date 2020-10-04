@@ -3,14 +3,18 @@
 //
 // Right-click anywhere to access the Options menu!
 // You can adjust the keyboard repeat delay/rate in ImGuiIO.
-// The code assume a mono-space font for simplicity! 
+// The code assume a mono-space font for simplicity!
 // If you don't use the default font, use ImGui::PushFont()/PopFont() to switch to a mono-space font before caling this.
 //
 // Usage:
-//   static MemoryEditor mem_edit_1;                                            // store your state somewhere
-//   mem_edit_1.DrawWindow("Memory Editor", mem_block, mem_block_size, 0x0000); // create a window and draw memory editor (if you already have a window, use DrawContents())
+//   // Create a window and draw memory editor inside it:
+//   static MemoryEditor mem_edit_1;
+//   static char data[0x10000];
+//   size_t data_size = 0x10000;
+//   mem_edit_1.DrawWindow("Memory Editor", data, data_size);
 //
 // Usage:
+//   // If you already have a window, use DrawContents() instead:
 //   static MemoryEditor mem_edit_2;
 //   ImGui::Begin("MyWindow")
 //   mem_edit_2.DrawContents(this, sizeof(*this), (size_t)this);
@@ -41,6 +45,7 @@
 // - v0.34: binary preview now applies endianness setting [@nicolasnoble]
 // - v0.35: using ImGuiDataType available since Dear ImGui 1.69.
 // - v0.36: minor tweaks, minor refactor.
+// - v0.37: fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working.
 //
 // Todo/Bugs:
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
@@ -48,9 +53,6 @@
 
 #pragma once
 
-#if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
-#define _CRT_SECURE_NO_WARNINGS
-#endif
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
 
@@ -60,6 +62,11 @@
 #else
 #define _PRISizeT   "z"
 #define ImSnprintf  snprintf
+#endif
+
+#ifdef _MSC_VER
+#pragma warning (push)
+#pragma warning (disable: 4996) // warning C4996: 'sprintf': This function or variable may be unsafe.
 #endif
 
 struct MemoryEditor
@@ -738,3 +745,7 @@ struct MemoryEditor
 
 #undef _PRISizeT
 #undef ImSnprintf
+
+#ifdef _MSC_VER
+#pragma warning (pop)
+#endif
