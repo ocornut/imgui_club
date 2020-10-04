@@ -33,9 +33,11 @@
 // - v0.34 (2019/05/07): binary preview now applies endianness setting [@nicolasnoble]
 // - v0.35 (2020/01/29): using ImGuiDataType available since Dear ImGui 1.69.
 // - v0.36 (2020/05/05): minor tweaks, minor refactor.
-// - v0.37 (2020/10/04): fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working.
+// - v0.40 (2020/10/04): fix misuse of ImGuiListClipper API, broke with Dear ImGui 1.79. made cursor position appears on left-side of edit box. option popup appears on mouse release. fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working in recent versions.
 //
 // Todo/Bugs:
+// - Arrow controls are currently broken if ImGuiConfigFlags_NavEnableKeyboard is set in the Dear ImGui context.
+// - This is generally old code, it should work but please don't use this as reference!
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
 // - Using InputText() is awkward and maybe overkill here, consider implementing something custom.
 
@@ -184,7 +186,7 @@ struct MemoryEditor
         Open = true;
         if (ImGui::Begin(title, &Open, ImGuiWindowFlags_NoScrollbar))
         {
-            if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && ImGui::IsMouseClicked(1))
+            if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
                 ImGui::OpenPopup("context");
             DrawContents(mem_data, mem_size, base_display_addr);
             if (ContentsWidthChanged)
@@ -221,8 +223,11 @@ struct MemoryEditor
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
+        // We are not really using the clipper API correctly here, because we rely on visible_start_addr/visible_end_addr for our scrolling function.
         const int line_total_count = (int)((mem_size + Cols - 1) / Cols);
-        ImGuiListClipper clipper(line_total_count, s.LineHeight);
+        ImGuiListClipper clipper;
+        clipper.Begin(line_total_count, s.LineHeight);
+        clipper.Step();
         const size_t visible_start_addr = clipper.DisplayStart * Cols;
         const size_t visible_end_addr = clipper.DisplayEnd * Cols;
 
@@ -325,7 +330,8 @@ struct MemoryEditor
                                 data->DeleteChars(0, data->BufTextLen);
                                 data->InsertChars(0, user_data->CurrentBufOverwrite);
                                 data->SelectionStart = 0;
-                                data->SelectionEnd = data->CursorPos = 2;
+                                data->SelectionEnd = 2;
+                                data->CursorPos = 0;
                             }
                             return 0;
                         }
@@ -414,6 +420,7 @@ struct MemoryEditor
                 }
             }
         }
+        IM_ASSERT(clipper.Step() == false);
         clipper.End();
         ImGui::PopStyleVar(2);
         ImGui::EndChild();
