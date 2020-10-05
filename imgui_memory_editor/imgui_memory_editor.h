@@ -34,9 +34,9 @@
 // - v0.35 (2020/01/29): using ImGuiDataType available since Dear ImGui 1.69.
 // - v0.36 (2020/05/05): minor tweaks, minor refactor.
 // - v0.40 (2020/10/04): fix misuse of ImGuiListClipper API, broke with Dear ImGui 1.79. made cursor position appears on left-side of edit box. option popup appears on mouse release. fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working in recent versions.
+// - v0.41 (2020/10/05): fix when using with keyboard/gamepad navigation enabled.
 //
 // Todo/Bugs:
-// - Arrow controls are currently broken if ImGuiConfigFlags_NavEnableKeyboard is set in the Dear ImGui context.
 // - This is generally old code, it should work but please don't use this as reference!
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
 // - Using InputText() is awkward and maybe overkill here, consider implementing something custom.
@@ -217,7 +217,7 @@ struct MemoryEditor
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1;
         if (OptShowDataPreview)
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing() * 3;
-        ImGui::BeginChild("##scrolling", ImVec2(0, -footer_height), false, ImGuiWindowFlags_NoMove);
+        ImGui::BeginChild("##scrolling", ImVec2(0, -footer_height), false, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav);
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
