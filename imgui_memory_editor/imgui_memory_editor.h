@@ -35,6 +35,7 @@
 // - v0.36 (2020/05/05): minor tweaks, minor refactor.
 // - v0.40 (2020/10/04): fix misuse of ImGuiListClipper API, broke with Dear ImGui 1.79. made cursor position appears on left-side of edit box. option popup appears on mouse release. fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working in recent versions.
 // - v0.41 (2020/10/05): fix when using with keyboard/gamepad navigation enabled.
+// - v0.42 (2020/10/14): fix for . character in ASCII view always being greyed out.
 //
 // Todo/Bugs:
 // - This is generally old code, it should work but please don't use this as reference!
@@ -415,7 +416,7 @@ struct MemoryEditor
                     }
                     unsigned char c = ReadFn ? ReadFn(mem_data, addr) : mem_data[addr];
                     char display_c = (c < 32 || c >= 128) ? '.' : c;
-                    draw_list->AddText(pos, (display_c == '.') ? color_disabled : color_text, &display_c, &display_c + 1);
+                    draw_list->AddText(pos, (display_c == c) ? color_text : color_disabled, &display_c, &display_c + 1);
                     pos.x += s.GlyphWidth;
                 }
             }
