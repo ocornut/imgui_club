@@ -4,7 +4,7 @@
 // Right-click anywhere to access the Options menu!
 // You can adjust the keyboard repeat delay/rate in ImGuiIO.
 // The code assume a mono-space font for simplicity!
-// If you don't use the default font, use ImGui::PushFont()/PopFont() to switch to a mono-space font before caling this.
+// If you don't use the default font, use ImGui::PushFont()/PopFont() to switch to a mono-space font before calling this.
 //
 // Usage:
 //   // Create a window and draw memory editor inside it:
