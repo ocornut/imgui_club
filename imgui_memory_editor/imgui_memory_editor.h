@@ -4,7 +4,7 @@
 // Right-click anywhere to access the Options menu!
 // You can adjust the keyboard repeat delay/rate in ImGuiIO.
 // The code assume a mono-space font for simplicity!
-// If you don't use the default font, use ImGui::PushFont()/PopFont() to switch to a mono-space font before calling this.
+// If you don't use the default font, use ImGui::PushFont()/PopFont() to switch to a mono-space font before caling this.
 //
 // Usage:
 //   // Create a window and draw memory editor inside it:
@@ -62,6 +62,8 @@
 
 struct MemoryEditor
 {
+    typedef void CustomPreview(MemoryEditor* editor, void* userdata);
+
     enum DataFormat
     {
         DataFormat_Bin = 0,
@@ -178,7 +180,7 @@ struct MemoryEditor
     }
 
     // Standalone Memory Editor window
-    void DrawWindow(const char* title, void* mem_data, size_t mem_size, size_t base_display_addr = 0x0000)
+    void DrawWindow(const char* title, void* mem_data, size_t mem_size, size_t base_display_addr = 0x0000, CustomPreview* custom_preview = nullptr, void* userdata = nullptr, float custom_height = 0.0f)
     {
         Sizes s;
         CalcSizes(s, mem_size, base_display_addr);
@@ -189,7 +191,7 @@ struct MemoryEditor
         {
             if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
                 ImGui::OpenPopup("context");
-            DrawContents(mem_data, mem_size, base_display_addr);
+            DrawContents(mem_data, mem_size, base_display_addr, custom_preview, userdata);
             if (ContentsWidthChanged)
             {
                 CalcSizes(s, mem_size, base_display_addr);
@@ -200,7 +202,7 @@ struct MemoryEditor
     }
 
     // Memory Editor contents only
-    void DrawContents(void* mem_data_void, size_t mem_size, size_t base_display_addr = 0x0000)
+    void DrawContents(void* mem_data_void, size_t mem_size, size_t base_display_addr = 0x0000, CustomPreview* custom_preview = nullptr, void* userdata = nullptr, float custom_height = 0.0f)
     {
         if (Cols < 1)
             Cols = 1;
@@ -217,7 +219,7 @@ struct MemoryEditor
         if (OptShowOptions)
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1;
         if (OptShowDataPreview)
-            footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing() * 3;
+            footer_height += custom_height + height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing() * 3;
         ImGui::BeginChild("##scrolling", ImVec2(0, -footer_height), false, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav);
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -446,7 +448,7 @@ struct MemoryEditor
         if (lock_show_data_preview)
         {
             ImGui::Separator();
-            DrawPreviewLine(s, mem_data, mem_size, base_display_addr);
+            DrawPreviewLine(s, mem_data, mem_size, base_display_addr, custom_preview, userdata);
         }
 
         // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
@@ -505,7 +507,7 @@ struct MemoryEditor
         }
     }
 
-    void DrawPreviewLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
+    void DrawPreviewLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr, CustomPreview* custom_preview, void* userdata)
     {
         IM_UNUSED(base_display_addr);
         ImU8* mem_data = (ImU8*)mem_data_void;
@@ -540,6 +542,11 @@ struct MemoryEditor
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Bin, buf, (size_t)IM_ARRAYSIZE(buf));
         buf[IM_ARRAYSIZE(buf) - 1] = 0;
         ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+
+        if (custom_preview != nullptr)
+        {
+            custom_preview(this, userdata);
+        }
     }
 
     // Utilities for Data Preview
