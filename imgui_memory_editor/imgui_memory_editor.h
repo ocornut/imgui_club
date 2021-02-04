@@ -82,6 +82,7 @@ struct MemoryEditor
     bool            OptUpperCaseHex;                            // = true   // display hexadecimal values as "FF" instead of "ff".
     int             OptMidColsCount;                            // = 8      // set to 0 to disable extra spacing between every mid-cols.
     int             OptAddrDigitsCount;                         // = 0      // number of addr digits to display (default calculated based on maximum displayed addr).
+    float           OptFooterExtraHeight;                       // = 0      // space to reserve at the bottom of the widget to add custom widgets
     ImU32           HighlightColor;                             //          // background color of highlighted bytes.
     ImU8            (*ReadFn)(const ImU8* data, size_t off);    // = 0      // optional handler to read bytes.
     void            (*WriteFn)(ImU8* data, size_t off, ImU8 d); // = 0      // optional handler to write bytes.
@@ -113,6 +114,7 @@ struct MemoryEditor
         OptUpperCaseHex = true;
         OptMidColsCount = 8;
         OptAddrDigitsCount = 0;
+        OptFooterExtraHeight = 0.0f;
         HighlightColor = IM_COL32(255, 255, 255, 50);
         ReadFn = NULL;
         WriteFn = NULL;
@@ -213,7 +215,7 @@ struct MemoryEditor
         // We begin into our scrolling region with the 'ImGuiWindowFlags_NoMove' in order to prevent click from moving the window.
         // This is used as a facility since our main click detection code doesn't assign an ActiveId so the click would normally be caught as a window-move.
         const float height_separator = style.ItemSpacing.y;
-        float footer_height = 0;
+        float footer_height = OptFooterExtraHeight;
         if (OptShowOptions)
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1;
         if (OptShowDataPreview)
