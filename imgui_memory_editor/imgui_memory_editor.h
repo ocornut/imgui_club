@@ -36,6 +36,7 @@
 // - v0.40 (2020/10/04): fix misuse of ImGuiListClipper API, broke with Dear ImGui 1.79. made cursor position appears on left-side of edit box. option popup appears on mouse release. fix MSVC warnings where _CRT_SECURE_NO_WARNINGS wasn't working in recent versions.
 // - v0.41 (2020/10/05): fix when using with keyboard/gamepad navigation enabled.
 // - v0.42 (2020/10/14): fix for . character in ASCII view always being greyed out.
+// - v0.50 (2021/02/04): added OptFooterExtraHeight to allow for custom drawing at the bottom of the editor [@leiradel]
 //
 // Todo/Bugs:
 // - This is generally old code, it should work but please don't use this as reference!
