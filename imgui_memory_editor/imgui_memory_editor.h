@@ -428,6 +428,9 @@ struct MemoryEditor
         ImGui::PopStyleVar(2);
         ImGui::EndChild();
 
+        // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
+        ImGui::SetCursorPosX(s.WindowWidth);
+
         if (data_next && DataEditingAddr < mem_size)
         {
             DataEditingAddr = DataPreviewAddr = DataEditingAddr + 1;
@@ -450,9 +453,6 @@ struct MemoryEditor
             ImGui::Separator();
             DrawPreviewLine(s, mem_data, mem_size, base_display_addr);
         }
-
-        // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
-        ImGui::SetCursorPosX(s.WindowWidth);
     }
 
     void DrawOptionsLine(const Sizes& s, void* mem_data, size_t mem_size, size_t base_display_addr)
