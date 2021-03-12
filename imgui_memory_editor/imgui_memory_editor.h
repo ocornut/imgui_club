@@ -37,7 +37,7 @@
 // - v0.41 (2020/10/05): fix when using with keyboard/gamepad navigation enabled.
 // - v0.42 (2020/10/14): fix for . character in ASCII view always being greyed out.
 // - v0.43 (2021/03/12): added OptFooterExtraHeight to allow for custom drawing at the bottom of the editor [@leiradel]
-// - v0.44 (2021/03/12): use ImGuiInputTextFlags_OverwriteMode in 1.82 + fix hardcoded width.
+// - v0.44 (2021/03/12): use ImGuiInputTextFlags_AlwaysOverwrite in 1.82 + fix hardcoded width.
 //
 // Todo/Bugs:
 // - This is generally old code, it should work but please don't use this as reference!
@@ -346,8 +346,8 @@ struct MemoryEditor
                     user_data.CursorPos = -1;
                     sprintf(user_data.CurrentBufOverwrite, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                     ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_NoHorizontalScroll | ImGuiInputTextFlags_CallbackAlways;
-#if IMGUI_VERSION_NUM >= 18103
-                    flags |= ImGuiInputTextFlags_OverwriteMode;
+#if IMGUI_VERSION_NUM >= 18104
+                    flags |= ImGuiInputTextFlags_AlwaysOverwrite;
 #else
                     flags |= ImGuiInputTextFlags_AlwaysInsertMode;
 #endif
