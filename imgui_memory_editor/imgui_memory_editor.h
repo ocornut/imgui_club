@@ -37,6 +37,7 @@
 // - v0.41 (2020/10/05): fix when using with keyboard/gamepad navigation enabled.
 // - v0.42 (2020/10/14): fix for . character in ASCII view always being greyed out.
 // - v0.43 (2021/03/12): added OptFooterExtraHeight to allow for custom drawing at the bottom of the editor [@leiradel]
+// - v0.44 (2021/03/12): use ImGuiInputTextFlags_OverwriteMode in 1.82 + fix hardcoded width.
 //
 // Todo/Bugs:
 // - This is generally old code, it should work but please don't use this as reference!
@@ -319,7 +320,6 @@ struct MemoryEditor
                         sprintf(AddrInputBuf, format_data, s.AddrDigitsCount, base_display_addr + addr);
                         sprintf(DataInputBuf, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                     }
-                    ImGui::PushItemWidth(s.GlyphWidth * 2);
                     struct UserData
                     {
                         // FIXME: We should have a way to retrieve the text edit cursor position more easily in the API, this is rather tedious. This is such a ugly mess we may be better off not using InputText() at all here.
@@ -345,13 +345,18 @@ struct MemoryEditor
                     UserData user_data;
                     user_data.CursorPos = -1;
                     sprintf(user_data.CurrentBufOverwrite, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
-                    ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_NoHorizontalScroll | ImGuiInputTextFlags_AlwaysInsertMode | ImGuiInputTextFlags_CallbackAlways;
-                    if (ImGui::InputText("##data", DataInputBuf, 32, flags, UserData::Callback, &user_data))
+                    ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_NoHorizontalScroll | ImGuiInputTextFlags_CallbackAlways;
+#if IMGUI_VERSION_NUM >= 18103
+                    flags |= ImGuiInputTextFlags_OverwriteMode;
+#else
+                    flags |= ImGuiInputTextFlags_AlwaysInsertMode;
+#endif
+                    ImGui::SetNextItemWidth(s.GlyphWidth * 2);
+                    if (ImGui::InputText("##data", DataInputBuf, IM_ARRAYSIZE(DataInputBuf), flags, UserData::Callback, &user_data))
                         data_write = data_next = true;
                     else if (!DataEditingTakeFocus && !ImGui::IsItemActive())
                         DataEditingAddr = data_editing_addr_next = (size_t)-1;
                     DataEditingTakeFocus = false;
-                    ImGui::PopItemWidth();
                     if (user_data.CursorPos >= 2)
                         data_write = data_next = true;
                     if (data_editing_addr_next != (size_t)-1)
@@ -467,9 +472,8 @@ struct MemoryEditor
             ImGui::OpenPopup("context");
         if (ImGui::BeginPopup("context"))
         {
-            ImGui::PushItemWidth(56);
+            ImGui::SetNextItemWidth(s.GlyphWidth * 7 + style.FramePadding.x * 2.0f);
             if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; if (Cols < 1) Cols = 1; }
-            ImGui::PopItemWidth();
             ImGui::Checkbox("Show Data Preview", &OptShowDataPreview);
             ImGui::Checkbox("Show HexII", &OptShowHexII);
             if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
@@ -482,8 +486,8 @@ struct MemoryEditor
         ImGui::SameLine();
         ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
         ImGui::SameLine();
-        ImGui::PushItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
-        if (ImGui::InputText("##addr", AddrInputBuf, 32, ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
+        ImGui::SetNextItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
+        if (ImGui::InputText("##addr", AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
         {
             size_t goto_addr;
             if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
@@ -492,7 +496,6 @@ struct MemoryEditor
                 HighlightMin = HighlightMax = (size_t)-1;
             }
         }
-        ImGui::PopItemWidth();
 
         if (GotoAddr != (size_t)-1)
         {
@@ -516,7 +519,7 @@ struct MemoryEditor
         ImGui::AlignTextToFramePadding();
         ImGui::Text("Preview as:");
         ImGui::SameLine();
-        ImGui::PushItemWidth((s.GlyphWidth * 10.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+        ImGui::SetNextItemWidth((s.GlyphWidth * 10.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
         if (ImGui::BeginCombo("##combo_type", DataTypeGetDesc(PreviewDataType), ImGuiComboFlags_HeightLargest))
         {
             for (int n = 0; n < ImGuiDataType_COUNT; n++)
@@ -524,11 +527,9 @@ struct MemoryEditor
                     PreviewDataType = (ImGuiDataType)n;
             ImGui::EndCombo();
         }
-        ImGui::PopItemWidth();
         ImGui::SameLine();
-        ImGui::PushItemWidth((s.GlyphWidth * 6.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+        ImGui::SetNextItemWidth((s.GlyphWidth * 6.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
         ImGui::Combo("##combo_endianess", &PreviewEndianess, "LE\0BE\0\0");
-        ImGui::PopItemWidth();
 
         char buf[128] = "";
         float x = s.GlyphWidth * 6.0f;
