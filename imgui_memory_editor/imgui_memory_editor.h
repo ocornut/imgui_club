@@ -44,6 +44,7 @@
 // - v0.52 (2024/03/08): removed unnecessary GetKeyIndex() calls, they are a no-op since 1.87.
 // - v0.53 (2024/05/27): fixed right-click popup from not appearing when using DrawContents(). warning fixes. (#35)
 // - v0.54 (2024/07/29): allow ReadOnly mode to still select and preview data. (#46) [@DeltaGW2]
+// - v0.55 (2024/08/19): add BgColorFn to allow setting background colors independently from highlighted selection. (#27) [@StrikerX3]
 //
 // TODO:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -96,6 +97,7 @@ struct MemoryEditor
     ImU8            (*ReadFn)(const ImU8* data, size_t off);    // = 0      // optional handler to read bytes.
     void            (*WriteFn)(ImU8* data, size_t off, ImU8 d); // = 0      // optional handler to write bytes.
     bool            (*HighlightFn)(const ImU8* data, size_t off);//= 0      // optional handler to return Highlight property (to support non-contiguous highlighting).
+    ImU32           (*BgColorFn)(const ImU8* data, size_t off); // = 0      // optional handler to return custom background color of individual bytes.
 
     // [Internal State]
     bool            ContentsWidthChanged;
@@ -128,6 +130,7 @@ struct MemoryEditor
         ReadFn = NULL;
         WriteFn = NULL;
         HighlightFn = NULL;
+        BgColorFn = NULL;
 
         // State/Internals
         ContentsWidthChanged = false;
@@ -287,22 +290,34 @@ struct MemoryEditor
                         byte_pos_x += (float)(n / OptMidColsCount) * s.SpacingBetweenMidCols;
                     ImGui::SameLine(byte_pos_x);
 
-                    // Draw highlight
-                    bool is_highlight_from_user_range = (addr >= HighlightMin && addr < HighlightMax);
-                    bool is_highlight_from_user_func = (HighlightFn && HighlightFn(mem_data, addr));
-                    bool is_highlight_from_preview = (addr >= DataPreviewAddr && addr < DataPreviewAddr + preview_data_type_size);
+                    // Draw highlight or custom background color
+                    const bool is_highlight_from_user_range = (addr >= HighlightMin && addr < HighlightMax);
+                    const bool is_highlight_from_user_func = (HighlightFn && HighlightFn(mem_data, addr));
+                    const bool is_highlight_from_preview = (addr >= DataPreviewAddr && addr < DataPreviewAddr + preview_data_type_size);
+
+                    ImU32 bg_color = 0;
+                    bool is_next_byte_highlighted = false;
                     if (is_highlight_from_user_range || is_highlight_from_user_func || is_highlight_from_preview)
                     {
-                        ImVec2 pos = ImGui::GetCursorScreenPos();
-                        float highlight_width = s.GlyphWidth * 2;
-                        bool is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1)));
+                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1)));
+                        bg_color = HighlightColor;
+                    }
+                    else if (BgColorFn != NULL)
+                    {
+                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((BgColorFn(mem_data, addr + 1) & IM_COL32_A_MASK) != 0);
+                        bg_color = BgColorFn(mem_data, addr);
+                    }
+                    if (bg_color != 0)
+                    {
+                        float bg_width = s.GlyphWidth * 2;
                         if (is_next_byte_highlighted || (n + 1 == Cols))
                         {
-                            highlight_width = s.HexCellWidth;
+                            bg_width = s.HexCellWidth;
                             if (OptMidColsCount > 0 && n > 0 && (n + 1) < Cols && ((n + 1) % OptMidColsCount) == 0)
-                                highlight_width += s.SpacingBetweenMidCols;
+                                bg_width += s.SpacingBetweenMidCols;
                         }
-                        draw_list->AddRectFilled(pos, ImVec2(pos.x + highlight_width, pos.y + s.LineHeight), HighlightColor);
+                        ImVec2 pos = ImGui::GetCursorScreenPos();
+                        draw_list->AddRectFilled(pos, ImVec2(pos.x + bg_width, pos.y + s.LineHeight), bg_color);
                     }
 
                     if (DataEditingAddr == addr)
@@ -403,10 +418,11 @@ struct MemoryEditor
                     ImGui::SameLine(s.PosAsciiStart);
                     ImVec2 pos = ImGui::GetCursorScreenPos();
                     addr = line_i * Cols;
+                    size_t mouse_addr = addr + (size_t)((ImGui::GetIO().MousePos.x - pos.x) / s.GlyphWidth);
                     ImGui::PushID(line_i);
                     if (ImGui::InvisibleButton("ascii", ImVec2(s.PosAsciiEnd - s.PosAsciiStart, s.LineHeight)))
                     {
-                        DataEditingAddr = DataPreviewAddr = addr + (size_t)((ImGui::GetIO().MousePos.x - pos.x) / s.GlyphWidth);
+                        DataEditingAddr = DataPreviewAddr = mouse_addr;
                         DataEditingTakeFocus = true;
                     }
                     ImGui::PopID();
@@ -416,6 +432,10 @@ struct MemoryEditor
                         {
                             draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_FrameBg));
                             draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_TextSelectedBg));
+                        }
+                        else if (BgColorFn)
+                        {
+                            draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), BgColorFn(mem_data, addr));
                         }
                         unsigned char c = ReadFn ? ReadFn(mem_data, addr) : mem_data[addr];
                         char display_c = (c < 32 || c >= 128) ? '.' : c;
