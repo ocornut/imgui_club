@@ -38,6 +38,7 @@
 // - v0.42 (2020/10/14): fix for . character in ASCII view always being greyed out.
 // - v0.43 (2021/03/12): added OptFooterExtraHeight to allow for custom drawing at the bottom of the editor [@leiradel]
 // - v0.44 (2021/03/12): use ImGuiInputTextFlags_AlwaysOverwrite in 1.82 + fix hardcoded width.
+// - v0.50 (2021/11/12): various fixes for recent dear imgui versions (fixed misuse of clipper, relying on SetKeyboardFocusHere() handling scrolling from 1.85)
 //
 // Todo/Bugs:
 // - This is generally old code, it should work but please don't use this as reference!
@@ -232,9 +233,6 @@ struct MemoryEditor
         const int line_total_count = (int)((mem_size + Cols - 1) / Cols);
         ImGuiListClipper clipper;
         clipper.Begin(line_total_count, s.LineHeight);
-        clipper.Step();
-        const size_t visible_start_addr = clipper.DisplayStart * Cols;
-        const size_t visible_end_addr = clipper.DisplayEnd * Cols;
 
         bool data_next = false;
 
@@ -250,18 +248,10 @@ struct MemoryEditor
         if (DataEditingAddr != (size_t)-1)
         {
             // Move cursor but only apply on next frame so scrolling with be synchronized (because currently we can't change the scrolling while the window is being rendered)
-            if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow)) && DataEditingAddr >= (size_t)Cols)          { data_editing_addr_next = DataEditingAddr - Cols; DataEditingTakeFocus = true; }
-            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_DownArrow)) && DataEditingAddr < mem_size - Cols) { data_editing_addr_next = DataEditingAddr + Cols; DataEditingTakeFocus = true; }
-            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_LeftArrow)) && DataEditingAddr > 0)               { data_editing_addr_next = DataEditingAddr - 1; DataEditingTakeFocus = true; }
-            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_RightArrow)) && DataEditingAddr < mem_size - 1)   { data_editing_addr_next = DataEditingAddr + 1; DataEditingTakeFocus = true; }
-        }
-        if (data_editing_addr_next != (size_t)-1 && (data_editing_addr_next / Cols) != (data_editing_addr_backup / Cols))
-        {
-            // Track cursor movements
-            const int scroll_offset = ((int)(data_editing_addr_next / Cols) - (int)(data_editing_addr_backup / Cols));
-            const bool scroll_desired = (scroll_offset < 0 && data_editing_addr_next < visible_start_addr + Cols * 2) || (scroll_offset > 0 && data_editing_addr_next > visible_end_addr - Cols * 2);
-            if (scroll_desired)
-                ImGui::SetScrollY(ImGui::GetScrollY() + scroll_offset * s.LineHeight);
+            if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow)) && DataEditingAddr >= (size_t)Cols) { data_editing_addr_next = DataEditingAddr - Cols; }
+            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_DownArrow)) && DataEditingAddr < mem_size - Cols) { data_editing_addr_next = DataEditingAddr + Cols; }
+            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_LeftArrow)) && DataEditingAddr > 0) { data_editing_addr_next = DataEditingAddr - 1; }
+            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_RightArrow)) && DataEditingAddr < mem_size - 1) { data_editing_addr_next = DataEditingAddr + 1; }
         }
 
         // Draw vertical separator
@@ -277,7 +267,7 @@ struct MemoryEditor
         const char* format_byte = OptUpperCaseHex ? "%02X" : "%02x";
         const char* format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
 
-        {
+        while (clipper.Step())
             for (int line_i = clipper.DisplayStart; line_i < clipper.DisplayEnd; line_i++) // display only visible lines
             {
                 size_t addr = (size_t)(line_i * Cols);
@@ -316,8 +306,7 @@ struct MemoryEditor
                         ImGui::PushID((void*)addr);
                         if (DataEditingTakeFocus)
                         {
-                            ImGui::SetKeyboardFocusHere();
-                            ImGui::CaptureKeyboardFromApp(true);
+                            ImGui::SetKeyboardFocusHere(0);
                             sprintf(AddrInputBuf, format_data, s.AddrDigitsCount, base_display_addr + addr);
                             sprintf(DataInputBuf, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                         }
@@ -430,9 +419,6 @@ struct MemoryEditor
                     }
                 }
             }
-        }
-        IM_ASSERT(clipper.Step() == false);
-        clipper.End();
         ImGui::PopStyleVar(2);
         ImGui::EndChild();
 
@@ -447,6 +433,7 @@ struct MemoryEditor
         else if (data_editing_addr_next != (size_t)-1)
         {
             DataEditingAddr = DataPreviewAddr = data_editing_addr_next;
+            DataEditingTakeFocus = true;
         }
 
         const bool lock_show_data_preview = OptShowDataPreview;
