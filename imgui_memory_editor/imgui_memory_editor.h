@@ -38,10 +38,11 @@
 // - v0.42 (2020/10/14): fix for . character in ASCII view always being greyed out.
 // - v0.43 (2021/03/12): added OptFooterExtraHeight to allow for custom drawing at the bottom of the editor [@leiradel]
 // - v0.44 (2021/03/12): use ImGuiInputTextFlags_AlwaysOverwrite in 1.82 + fix hardcoded width.
-// - v0.50 (2021/11/12): various fixes for recent dear imgui versions (fixed misuse of clipper, relying on SetKeyboardFocusHere() handling scrolling from 1.85)
+// - v0.50 (2021/11/12): various fixes for recent dear imgui versions (fixed misuse of clipper, relying on SetKeyboardFocusHere() handling scrolling from 1.85). added default size.
 //
 // Todo/Bugs:
-// - This is generally old code, it should work but please don't use this as reference!
+// - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
+// - PageUp/PageDown are supported because we use _NoNav. This is a good test scenario for working out idioms of how to mix natural nav and our own...
 // - Arrows are being sent to the InputText() about to disappear which for LeftArrow makes the text cursor appear at position 1 for one frame.
 // - Using InputText() is awkward and maybe overkill here, consider implementing something custom.
 
@@ -187,6 +188,7 @@ struct MemoryEditor
     {
         Sizes s;
         CalcSizes(s, mem_size, base_display_addr);
+        ImGui::SetNextWindowSize(ImVec2(s.WindowWidth, s.WindowWidth * 0.60f), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(s.WindowWidth, FLT_MAX));
 
         Open = true;
