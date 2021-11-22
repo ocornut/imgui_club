@@ -248,10 +248,10 @@ struct MemoryEditor
         if (DataEditingAddr != (size_t)-1)
         {
             // Move cursor but only apply on next frame so scrolling with be synchronized (because currently we can't change the scrolling while the window is being rendered)
-            if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow)) && DataEditingAddr >= (size_t)Cols) { data_editing_addr_next = DataEditingAddr - Cols; }
-            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_DownArrow)) && DataEditingAddr < mem_size - Cols) { data_editing_addr_next = DataEditingAddr + Cols; }
-            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_LeftArrow)) && DataEditingAddr > 0) { data_editing_addr_next = DataEditingAddr - 1; }
-            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_RightArrow)) && DataEditingAddr < mem_size - 1) { data_editing_addr_next = DataEditingAddr + 1; }
+            if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow)) && (ptrdiff_t)DataEditingAddr >= (ptrdiff_t)Cols)                     { data_editing_addr_next = DataEditingAddr - Cols; }
+            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_DownArrow)) && (ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - Cols)    { data_editing_addr_next = DataEditingAddr + Cols; }
+            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_LeftArrow)) && (ptrdiff_t)DataEditingAddr > (ptrdiff_t)0)                  { data_editing_addr_next = DataEditingAddr - 1; }
+            else if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_RightArrow)) && (ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - 1)      { data_editing_addr_next = DataEditingAddr + 1; }
         }
 
         // Draw vertical separator
@@ -320,7 +320,8 @@ struct MemoryEditor
                                     user_data->CursorPos = data->CursorPos;
                                 if (data->SelectionStart == 0 && data->SelectionEnd == data->BufTextLen)
                                 {
-                                    // When not editing a byte, always rewrite its content (this is a bit tricky, since InputText technically "owns" the master copy of the buffer we edit it in there)
+                                    // When not editing a byte, always refresh its InputText content pulled from underlying memory data
+                                    // (this is a bit tricky, since InputText technically "owns" the master copy of the buffer we edit it in there)
                                     data->DeleteChars(0, data->BufTextLen);
                                     data->InsertChars(0, user_data->CurrentBufOverwrite);
                                     data->SelectionStart = 0;
@@ -425,7 +426,7 @@ struct MemoryEditor
         // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
         ImGui::SetCursorPosX(s.WindowWidth);
 
-        if (data_next && DataEditingAddr < mem_size)
+        if (data_next && DataEditingAddr + 1 < mem_size)
         {
             DataEditingAddr = DataPreviewAddr = DataEditingAddr + 1;
             DataEditingTakeFocus = true;
