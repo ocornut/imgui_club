@@ -245,7 +245,6 @@ struct MemoryEditor
 
         size_t preview_data_type_size = OptShowDataPreview ? DataTypeGetSize(PreviewDataType) : 0;
 
-        size_t data_editing_addr_backup = DataEditingAddr;
         size_t data_editing_addr_next = (size_t)-1;
         if (DataEditingAddr != (size_t)-1)
         {
