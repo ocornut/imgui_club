@@ -51,7 +51,7 @@
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(_UCRT)
 #define _PRISizeT   "I"
 #define ImSnprintf  _snprintf
 #else
@@ -59,7 +59,7 @@
 #define ImSnprintf  snprintf
 #endif
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(_UCRT)
 #pragma warning (push)
 #pragma warning (disable: 4996) // warning C4996: 'sprintf': This function or variable may be unsafe.
 #endif
