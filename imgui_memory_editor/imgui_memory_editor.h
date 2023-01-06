@@ -308,8 +308,8 @@ struct MemoryEditor
                         if (DataEditingTakeFocus)
                         {
                             ImGui::SetKeyboardFocusHere(0);
-                            sprintf(AddrInputBuf, format_data, s.AddrDigitsCount, base_display_addr + addr);
-                            sprintf(DataInputBuf, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
+                            ImSnprintf(AddrInputBuf, (size_t)IM_ARRAYSIZE(AddrInputBuf), format_data, s.AddrDigitsCount, base_display_addr + addr);
+                            ImSnprintf(DataInputBuf, (size_t)IM_ARRAYSIZE(DataInputBuf), format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                         }
                         struct UserData
                         {
@@ -336,7 +336,7 @@ struct MemoryEditor
                         };
                         UserData user_data;
                         user_data.CursorPos = -1;
-                        sprintf(user_data.CurrentBufOverwrite, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
+                        ImSnprintf(user_data.CurrentBufOverwrite, (size_t)IM_ARRAYSIZE(user_data.CurrentBufOverwrite), format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                         ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_NoHorizontalScroll | ImGuiInputTextFlags_CallbackAlways;
 #if IMGUI_VERSION_NUM >= 18104
                         flags |= ImGuiInputTextFlags_AlwaysOverwrite;
