@@ -6,7 +6,7 @@ https://github.com/ocornut/imgui/wiki
 
 # imgui_memory_editor
 
-https://github.com/ocornut/imgui_club/tree/master/imgui_memory_editor
+https://github.com/ocornut/imgui_club/tree/main/imgui_memory_editor
 
 Mini hexadecimal editor! Right-click for option menu. 
 Features: Keyboard controls. Read-only mode. Optional Ascii display. Optional HexII display. Goto address. Highlight range/function. Read/Write handlers. 
