@@ -39,6 +39,7 @@
 // - v0.43 (2021/03/12): added OptFooterExtraHeight to allow for custom drawing at the bottom of the editor [@leiradel]
 // - v0.44 (2021/03/12): use ImGuiInputTextFlags_AlwaysOverwrite in 1.82 + fix hardcoded width.
 // - v0.50 (2021/11/12): various fixes for recent dear imgui versions (fixed misuse of clipper, relying on SetKeyboardFocusHere() handling scrolling from 1.85). added default size.
+// - v0.51 (2023/02/22): fix for layout change in 1.89 when using IMGUI_DISABLE_OBSOLETE_FUNCTIONS. (#34)
 //
 // Todo/Bugs:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -426,6 +427,7 @@ struct MemoryEditor
 
         // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
         ImGui::SetCursorPosX(s.WindowWidth);
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
 
         if (data_next && DataEditingAddr + 1 < mem_size)
         {
