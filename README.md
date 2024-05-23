@@ -1,6 +1,6 @@
 Those are officially maintained.
-You also can find various useful third-party snippets here:
-https://github.com/ocornut/imgui/wiki
+<BR>You also can find many useful third-party snippets here:
+https://github.com/ocornut/imgui/wiki/Useful-Extensions
 
 ----
 
