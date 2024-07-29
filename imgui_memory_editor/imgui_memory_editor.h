@@ -43,6 +43,7 @@
 // - v0.51 (2024/02/22): fix for layout change in 1.89 when using IMGUI_DISABLE_OBSOLETE_FUNCTIONS. (#34)
 // - v0.52 (2024/03/08): removed unnecessary GetKeyIndex() calls, they are a no-op since 1.87.
 // - v0.53 (2024/05/27): fixed right-click popup from not appearing when using DrawContents(). warning fixes. (#35)
+// - v0.54 (2024/07/29): allow ReadOnly mode to still select and preview data. (#46) [@DeltaGW2]
 //
 // TODO:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -242,7 +243,7 @@ struct MemoryEditor
 
         bool data_next = false;
 
-        if (ReadOnly || DataEditingAddr >= mem_size)
+        if (DataEditingAddr >= mem_size)
             DataEditingAddr = (size_t)-1;
         if (DataPreviewAddr >= mem_size)
             DataPreviewAddr = (size_t)-1;
@@ -342,6 +343,8 @@ struct MemoryEditor
                         user_data.CursorPos = -1;
                         ImSnprintf(user_data.CurrentBufOverwrite, 3, format_byte, ReadFn ? ReadFn(mem_data, addr) : mem_data[addr]);
                         ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_NoHorizontalScroll | ImGuiInputTextFlags_CallbackAlways;
+                        if (ReadOnly)
+                            flags |= ImGuiInputTextFlags_ReadOnly;
                         flags |= ImGuiInputTextFlags_AlwaysOverwrite; // was ImGuiInputTextFlags_AlwaysInsertMode
                         ImGui::SetNextItemWidth(s.GlyphWidth * 2);
                         if (ImGui::InputText("##data", DataInputBuf, IM_ARRAYSIZE(DataInputBuf), flags, UserData::Callback, &user_data))
@@ -354,7 +357,7 @@ struct MemoryEditor
                         if (data_editing_addr_next != (size_t)-1)
                             data_write = data_next = false;
                         unsigned int data_input_value = 0;
-                        if (data_write && sscanf(DataInputBuf, "%X", &data_input_value) == 1)
+                        if (!ReadOnly && data_write && sscanf(DataInputBuf, "%X", &data_input_value) == 1)
                         {
                             if (WriteFn)
                                 WriteFn(mem_data, addr, (ImU8)data_input_value);
@@ -386,7 +389,7 @@ struct MemoryEditor
                             else
                                 ImGui::Text(format_byte_space, b);
                         }
-                        if (!ReadOnly && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
+                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
                         {
                             DataEditingTakeFocus = true;
                             data_editing_addr_next = addr;
