@@ -1,4 +1,4 @@
-// Multi-Context Compositor v0.10, for Dear ImGui
+// Multi-Context Compositor v0.11, for Dear ImGui
 // Get latest version at http://www.github.com/ocornut/imgui_club
 // Licensed under The MIT License (MIT)
 
@@ -86,10 +86,16 @@ void ImGuiMultiContextCompositor_PreNewFrameUpdateAll(ImGuiMultiContextComposito
     {
         const bool ctx_is_front = (ctx == mcc->ContextsFrontToBack.front());
 
-        // When hovering a secondary viewport, only enable mouse for the context owning it
 #ifdef IMGUI_HAS_DOCK
-        if (mcc->CtxMouseExclusive == NULL && ctx->MouseLastHoveredViewport != NULL)
-            if ((ctx->MouseLastHoveredViewport->Flags & ImGuiViewportFlags_CanHostOtherWindows) == 0)
+        // When hovering a secondary viewport, only enable mouse for the context owning it
+        // We specifically use 'ctx->IO.MouseHoveredViewport' (current, submitted by backend) and not 'ctx->MouseLastHoveredViewport' (last valid one)
+        if (mcc->CtxMouseExclusive == NULL && ctx->IO.MouseHoveredViewport != 0)
+        {
+            ImGuiViewport* hovered_viewport = NULL;
+            for (ImGuiViewport* viewport : ctx->PlatformIO.Viewports)
+                if (viewport->ID == ctx->IO.MouseHoveredViewport)
+                    hovered_viewport = viewport;
+            if (hovered_viewport != NULL && (hovered_viewport->Flags & ImGuiViewportFlags_CanHostOtherWindows) == 0)
                 mcc->CtxMouseExclusive = ctx;
 #endif
 

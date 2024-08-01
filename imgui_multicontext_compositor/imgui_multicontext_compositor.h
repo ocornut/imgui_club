@@ -1,4 +1,4 @@
-// Multi-Context Compositor v0.10, for Dear ImGui
+// Multi-Context Compositor v0.11, for Dear ImGui
 // Get latest version at http://www.github.com/ocornut/imgui_club
 // Licensed under The MIT License (MIT)
 
@@ -13,6 +13,7 @@
 
 // CHANGELOG:
 // - v0.10: (2024/07/16): initial version. Requires dear imgui 1.90.9+.
+// - v0.11: (2024/08/01): fixed an issue clicking between two secondary viewport of different contexts.
 
 // TODO:
 // - Ctrl+Tab could be multi-context aware
