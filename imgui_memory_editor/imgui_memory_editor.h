@@ -100,6 +100,9 @@ struct MemoryEditor
     bool            (*HighlightFn)(const ImU8* data, size_t off);//= 0      // optional handler to return Highlight property (to support non-contiguous highlighting).
     ImU32           (*BgColorFn)(const ImU8* data, size_t off); // = 0      // optional handler to return custom background color of individual bytes.
 
+    // Public read-only data
+    size_t          HoveredAddr;                                // the address currently being hovered when IsDataHovered() is true.
+
     // [Internal State]
     bool            ContentsWidthChanged;
     size_t          DataPreviewAddr;
@@ -108,7 +111,6 @@ struct MemoryEditor
     char            DataInputBuf[32];
     char            AddrInputBuf[32];
     size_t          GotoAddr;
-    size_t          HoveredAddr;
     size_t          HighlightMin, HighlightMax;
     int             PreviewEndianness;
     ImGuiDataType   PreviewDataType;
@@ -588,6 +590,7 @@ struct MemoryEditor
         ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
     }
 
+    // If true, the hovered address is in HoveredAddr
     bool IsDataHovered() const
     {
         return HoveredAddr != (size_t)-1;
