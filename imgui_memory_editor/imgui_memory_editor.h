@@ -108,6 +108,7 @@ struct MemoryEditor
     char            DataInputBuf[32];
     char            AddrInputBuf[32];
     size_t          GotoAddr;
+    size_t          HoveredAddr;
     size_t          HighlightMin, HighlightMax;
     int             PreviewEndianness;
     ImGuiDataType   PreviewDataType;
@@ -140,6 +141,7 @@ struct MemoryEditor
         memset(DataInputBuf, 0, sizeof(DataInputBuf));
         memset(AddrInputBuf, 0, sizeof(AddrInputBuf));
         GotoAddr = (size_t)-1;
+        HoveredAddr = (size_t)-1;
         HighlightMin = HighlightMax = (size_t)-1;
         PreviewEndianness = 0;
         PreviewDataType = ImGuiDataType_S32;
@@ -277,6 +279,8 @@ struct MemoryEditor
         const char* format_byte = OptUpperCaseHex ? "%02X" : "%02x";
         const char* format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
 
+        HoveredAddr = (size_t)-1;
+
         while (clipper.Step())
             for (int line_i = clipper.DisplayStart; line_i < clipper.DisplayEnd; line_i++) // display only visible lines
             {
@@ -405,10 +409,14 @@ struct MemoryEditor
                             else
                                 ImGui::Text(format_byte_space, b);
                         }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
+                        if (ImGui::IsItemHovered())
                         {
-                            DataEditingTakeFocus = true;
-                            data_editing_addr_next = addr;
+                            HoveredAddr = addr;
+                            if (ImGui::IsMouseClicked(0))
+                            {
+                                DataEditingTakeFocus = true;
+                                data_editing_addr_next = addr;
+                            }
                         }
                     }
                 }
@@ -425,6 +433,10 @@ struct MemoryEditor
                     {
                         DataEditingAddr = DataPreviewAddr = mouse_addr;
                         DataEditingTakeFocus = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        HoveredAddr = mouse_addr;
                     }
                     ImGui::PopID();
                     for (int n = 0; n < Cols && addr < mem_size; n++, addr++)
@@ -574,6 +586,11 @@ struct MemoryEditor
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Bin, buf, (size_t)IM_ARRAYSIZE(buf));
         buf[IM_ARRAYSIZE(buf) - 1] = 0;
         ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+    }
+
+    bool IsDataHovered() const
+    {
+        return HoveredAddr != (size_t)-1;
     }
 
     // Utilities for Data Preview (since we don't access imgui_internal.h)
