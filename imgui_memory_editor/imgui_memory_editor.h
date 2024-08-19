@@ -45,6 +45,7 @@
 // - v0.53 (2024/05/27): fixed right-click popup from not appearing when using DrawContents(). warning fixes. (#35)
 // - v0.54 (2024/07/29): allow ReadOnly mode to still select and preview data. (#46) [@DeltaGW2]
 // - v0.55 (2024/08/19): add BgColorFn to allow setting background colors independently from highlighted selection. (#27) [@StrikerX3]
+//                       fixed a data preview crash with 1.91.0 WIP. fixed contiguous highlight color when using data preview.
 //
 // TODO:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -299,7 +300,7 @@ struct MemoryEditor
                     bool is_next_byte_highlighted = false;
                     if (is_highlight_from_user_range || is_highlight_from_user_func || is_highlight_from_preview)
                     {
-                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1)));
+                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1)) || (addr + 1 < DataPreviewAddr + preview_data_type_size));
                         bg_color = HighlightColor;
                     }
                     else if (BgColorFn != NULL)
@@ -544,11 +545,16 @@ struct MemoryEditor
         ImGui::Text("Preview as:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth((s.GlyphWidth * 10.0f) + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x);
+
+        static const ImGuiDataType supported_data_types[] = { ImGuiDataType_S8, ImGuiDataType_U8, ImGuiDataType_S16, ImGuiDataType_U16, ImGuiDataType_S32, ImGuiDataType_U32, ImGuiDataType_S64, ImGuiDataType_U64, ImGuiDataType_Float, ImGuiDataType_Double };
         if (ImGui::BeginCombo("##combo_type", DataTypeGetDesc(PreviewDataType), ImGuiComboFlags_HeightLargest))
         {
-            for (int n = 0; n < ImGuiDataType_COUNT; n++)
-                if (ImGui::Selectable(DataTypeGetDesc((ImGuiDataType)n), PreviewDataType == n))
-                    PreviewDataType = (ImGuiDataType)n;
+            for (int n = 0; n < IM_ARRAYSIZE(supported_data_types); n++)
+            {
+                ImGuiDataType data_type = supported_data_types[n];
+                if (ImGui::Selectable(DataTypeGetDesc(data_type), PreviewDataType == data_type))
+                    PreviewDataType = data_type;
+            }
             ImGui::EndCombo();
         }
         ImGui::SameLine();
@@ -570,18 +576,19 @@ struct MemoryEditor
         ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
     }
 
-    // Utilities for Data Preview
+    // Utilities for Data Preview (since we don't access imgui_internal.h)
+    // FIXME: This technically depends on ImGuiDataType order.
     const char* DataTypeGetDesc(ImGuiDataType data_type) const
     {
         const char* descs[] = { "Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32", "Int64", "Uint64", "Float", "Double" };
-        IM_ASSERT(data_type >= 0 && data_type < ImGuiDataType_COUNT);
+        IM_ASSERT(data_type >= 0 && data_type < IM_ARRAYSIZE(descs));
         return descs[data_type];
     }
 
     size_t DataTypeGetSize(ImGuiDataType data_type) const
     {
         const size_t sizes[] = { 1, 1, 2, 2, 4, 4, 8, 8, sizeof(float), sizeof(double) };
-        IM_ASSERT(data_type >= 0 && data_type < ImGuiDataType_COUNT);
+        IM_ASSERT(data_type >= 0 && data_type < IM_ARRAYSIZE(sizes));
         return sizes[data_type];
     }
 
@@ -760,6 +767,7 @@ struct MemoryEditor
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "%a", data); return; }
             break;
         }
+        default:
         case ImGuiDataType_COUNT:
             break;
         } // Switch
