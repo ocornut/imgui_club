@@ -45,6 +45,7 @@
 // - v0.53 (2024/05/27): fixed right-click popup from not appearing when using DrawContents(). warning fixes. (#35)
 // - v0.54 (2024/07/29): allow ReadOnly mode to still select and preview data. (#46) [@DeltaGW2]
 // - v0.55 (2024/08/19): added BgColorFn to allow setting background colors independently from highlighted selection. (#27) [@StrikerX3]
+//                       added MouseHoveredAddr public readable field. (#47, #27) [@StrikerX3]
 //                       fixed a data preview crash with 1.91.0 WIP. fixed contiguous highlight color when using data preview.
 //                       *BREAKING* added UserData field passed to all optional function handlers: ReadFn, WriteFn, HighlightFn, BgColorFn. (#50) [@silverweed]
 //
@@ -104,6 +105,10 @@ struct MemoryEditor
     ImU32           (*BgColorFn)(const ImU8* data, size_t off, void* user_data);  // = 0      // optional handler to return custom background color of individual bytes.
     void*           UserData;                                                     // = NULL   // user data forwarded to the function handlers
 
+    // Public read-only data
+    bool            MouseHovered;                               // set when mouse is hovering a value.
+    size_t          MouseHoveredAddr;                           // the address currently being hovered if MouseHovered is set.
+
     // [Internal State]
     bool            ContentsWidthChanged;
     size_t          DataPreviewAddr;
@@ -145,6 +150,8 @@ struct MemoryEditor
         memset(DataInputBuf, 0, sizeof(DataInputBuf));
         memset(AddrInputBuf, 0, sizeof(AddrInputBuf));
         GotoAddr = (size_t)-1;
+        MouseHovered = false;
+        MouseHoveredAddr = 0;
         HighlightMin = HighlightMax = (size_t)-1;
         PreviewEndianness = 0;
         PreviewDataType = ImGuiDataType_S32;
@@ -282,6 +289,9 @@ struct MemoryEditor
         const char* format_byte = OptUpperCaseHex ? "%02X" : "%02x";
         const char* format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
 
+        MouseHovered = false;
+        MouseHoveredAddr = 0;
+
         while (clipper.Step())
             for (int line_i = clipper.DisplayStart; line_i < clipper.DisplayEnd; line_i++) // display only visible lines
             {
@@ -410,10 +420,15 @@ struct MemoryEditor
                             else
                                 ImGui::Text(format_byte_space, b);
                         }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
+                        if (ImGui::IsItemHovered())
                         {
-                            DataEditingTakeFocus = true;
-                            data_editing_addr_next = addr;
+                            MouseHovered = true;
+                            MouseHoveredAddr = addr;
+                            if (ImGui::IsMouseClicked(0))
+                            {
+                                DataEditingTakeFocus = true;
+                                data_editing_addr_next = addr;
+                            }
                         }
                     }
                 }
@@ -430,6 +445,11 @@ struct MemoryEditor
                     {
                         DataEditingAddr = DataPreviewAddr = mouse_addr;
                         DataEditingTakeFocus = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        MouseHovered = true;
+                        MouseHoveredAddr = mouse_addr;
                     }
                     ImGui::PopID();
                     for (int n = 0; n < Cols && addr < mem_size; n++, addr++)
@@ -539,6 +559,12 @@ struct MemoryEditor
             }
             GotoAddr = (size_t)-1;
         }
+
+        //if (MouseHovered)
+        //{
+        //    ImGui::SameLine();
+        //    ImGui::Text("Hovered: %p", MouseHoveredAddr);
+        //}
     }
 
     void DrawPreviewLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
