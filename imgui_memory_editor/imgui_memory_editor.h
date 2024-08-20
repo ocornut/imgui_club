@@ -280,7 +280,7 @@ struct MemoryEditor
         while (clipper.Step())
             for (int line_i = clipper.DisplayStart; line_i < clipper.DisplayEnd; line_i++) // display only visible lines
             {
-                size_t addr = (size_t)(line_i * Cols);
+                size_t addr = (size_t)line_i * Cols;
                 ImGui::Text(format_address, s.AddrDigitsCount, base_display_addr + addr);
 
                 // Draw Hexadecimal
@@ -418,7 +418,7 @@ struct MemoryEditor
                     // Draw ASCII values
                     ImGui::SameLine(s.PosAsciiStart);
                     ImVec2 pos = ImGui::GetCursorScreenPos();
-                    addr = line_i * Cols;
+                    addr = (size_t)line_i * Cols;
                     size_t mouse_addr = addr + (size_t)((ImGui::GetIO().MousePos.x - pos.x) / s.GlyphWidth);
                     ImGui::PushID(line_i);
                     if (ImGui::InvisibleButton("ascii", ImVec2(s.PosAsciiEnd - s.PosAsciiStart, s.LineHeight)))
