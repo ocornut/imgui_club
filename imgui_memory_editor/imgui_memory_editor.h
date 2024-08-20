@@ -419,7 +419,11 @@ struct MemoryEditor
                     ImGui::SameLine(s.PosAsciiStart);
                     ImVec2 pos = ImGui::GetCursorScreenPos();
                     addr = line_i * Cols;
-                    size_t mouse_addr = addr + (size_t)((ImGui::GetIO().MousePos.x - pos.x) / s.GlyphWidth);
+                    float mposx = ImGui::GetIO().MousePos.x;
+                    float posdiff = mposx - pos.x;
+                    if (posdiff < 0)
+                        posdiff = 0;
+                    size_t mouse_addr = addr + (size_t)(posdiff / s.GlyphWidth);
                     ImGui::PushID(line_i);
                     if (ImGui::InvisibleButton("ascii", ImVec2(s.PosAsciiEnd - s.PosAsciiStart, s.LineHeight)))
                     {
