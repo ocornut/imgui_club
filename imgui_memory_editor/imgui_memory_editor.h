@@ -132,11 +132,11 @@ struct MemoryEditor
         OptAddrDigitsCount = 0;
         OptFooterExtraHeight = 0.0f;
         HighlightColor = IM_COL32(255, 255, 255, 50);
-        ReadFn = NULL;
-        WriteFn = NULL;
-        HighlightFn = NULL;
-        BgColorFn = NULL;
-        UserData = NULL;
+        ReadFn = nullptr;
+        WriteFn = nullptr;
+        HighlightFn = nullptr;
+        BgColorFn = nullptr;
+        UserData = nullptr;
 
         // State/Internals
         ContentsWidthChanged = false;
@@ -308,7 +308,7 @@ struct MemoryEditor
                         is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1, UserData)) || (addr + 1 < DataPreviewAddr + preview_data_type_size));
                         bg_color = HighlightColor;
                     }
-                    else if (BgColorFn != NULL)
+                    else if (BgColorFn != nullptr)
                     {
                         is_next_byte_highlighted = (addr + 1 < mem_size) && ((BgColorFn(mem_data, addr + 1, UserData) & IM_COL32_A_MASK) != 0);
                         bg_color = BgColorFn(mem_data, addr, UserData);
@@ -646,8 +646,8 @@ struct MemoryEditor
 
     void* EndiannessCopy(void* dst, void* src, size_t size) const
     {
-        static void* (*fp)(void*, void*, size_t, int) = NULL;
-        if (fp == NULL)
+        static void* (*fp)(void*, void*, size_t, int) = nullptr;
+        if (fp == nullptr)
             fp = IsBigEndian() ? EndiannessCopyBigEndian : EndiannessCopyLittleEndian;
         return fp(dst, src, size, PreviewEndianness);
     }
