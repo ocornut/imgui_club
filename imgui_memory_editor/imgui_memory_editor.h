@@ -43,7 +43,7 @@
 // - v0.51 (2024/02/22): fix for layout change in 1.89 when using IMGUI_DISABLE_OBSOLETE_FUNCTIONS. (#34)
 // - v0.52 (2024/03/08): removed unnecessary GetKeyIndex() calls, they are a no-op since 1.87.
 // - v0.53 (2024/05/27): fixed right-click popup from not appearing when using DrawContents(). warning fixes. (#35)
-// - v0.54 (2024/07/29): allow ReadOnly mode to still select and preview data. (#46) [@DeltaGW2]
+// - v0.54 (2024/07/29): allow ReadOnly mode to still select and preview data. (#46) [@DeltaGW2])
 // - v0.55 (2024/08/19): added BgColorFn to allow setting background colors independently from highlighted selection. (#27) [@StrikerX3]
 //                       added MouseHoveredAddr public readable field. (#47, #27) [@StrikerX3]
 //                       fixed a data preview crash with 1.91.0 WIP. fixed contiguous highlight color when using data preview.
@@ -355,6 +355,10 @@ struct MemoryEditor
                                 InputTextUserData* user_data = (InputTextUserData*)data->UserData;
                                 if (!data->HasSelection())
                                     user_data->CursorPos = data->CursorPos;
+#if IMGUI_VERSION_NUM < 19102
+                                if (data->Flags & ImGuiInputTextFlags_ReadOnly)
+                                    return 0;
+#endif
                                 if (data->SelectionStart == 0 && data->SelectionEnd == data->BufTextLen)
                                 {
                                     // When not editing a byte, always refresh its InputText content pulled from underlying memory data
