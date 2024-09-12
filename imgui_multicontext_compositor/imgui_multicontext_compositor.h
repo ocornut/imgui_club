@@ -46,6 +46,8 @@
 
 #pragma once
 
+#include "imgui.h"
+
 struct ImGuiMultiContextCompositor
 {
     // List of context + sorted front to back
