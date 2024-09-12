@@ -85,8 +85,6 @@ void ImGuiMultiContextCompositor_PreNewFrameUpdateAll(ImGuiMultiContextComposito
     // - Find out who has an active drag and drop
     for (ImGuiContext* ctx : mcc->ContextsFrontToBack)
     {
-        const bool ctx_is_front = (ctx == mcc->ContextsFrontToBack.front());
-
 #ifdef IMGUI_HAS_DOCK
         // When hovering a secondary viewport, only enable mouse for the context owning it
         // We specifically use 'ctx->IO.MouseHoveredViewport' (current, submitted by backend) and not 'ctx->MouseLastHoveredViewport' (last valid one)
