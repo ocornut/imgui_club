@@ -99,10 +99,10 @@ struct MemoryEditor
     ImU32           HighlightColor;                             //          // background color of highlighted bytes.
 
     // Function handlers
-    ImU8            (*ReadFn)(const ImU8* data, size_t off, void* user_data);     // = 0      // optional handler to read bytes.
-    void            (*WriteFn)(ImU8* data, size_t off, ImU8 d, void* user_data);  // = 0      // optional handler to write bytes.
-    bool            (*HighlightFn)(const ImU8* data, size_t off, void* user_data);// = 0      // optional handler to return Highlight property (to support non-contiguous highlighting).
-    ImU32           (*BgColorFn)(const ImU8* data, size_t off, void* user_data);  // = 0      // optional handler to return custom background color of individual bytes.
+    ImU8            (*ReadFn)(const ImU8* mem, size_t off, void* user_data);      // = 0      // optional handler to read bytes.
+    void            (*WriteFn)(ImU8* mem, size_t off, ImU8 d, void* user_data);   // = 0      // optional handler to write bytes.
+    bool            (*HighlightFn)(const ImU8* mem, size_t off, void* user_data); // = 0      // optional handler to return Highlight property (to support non-contiguous highlighting).
+    ImU32           (*BgColorFn)(const ImU8* mem, size_t off, void* user_data);   // = 0      // optional handler to return custom background color of individual bytes.
     void*           UserData;                                                     // = NULL   // user data forwarded to the function handlers
 
     // Public read-only data
