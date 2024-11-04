@@ -48,6 +48,7 @@
 //                       added MouseHoveredAddr public readable field. (#47, #27) [@StrikerX3]
 //                       fixed a data preview crash with 1.91.0 WIP. fixed contiguous highlight color when using data preview.
 //                       *BREAKING* added UserData field passed to all optional function handlers: ReadFn, WriteFn, HighlightFn, BgColorFn. (#50) [@silverweed]
+// - v0.56 (2024/11/04): fixed MouseHovered, MouseHoveredAddr not being set when hovering a byte being edited. (#54)
 //
 // TODO:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -398,6 +399,11 @@ struct MemoryEditor
                                 WriteFn(mem_data, addr, (ImU8)data_input_value, UserData);
                             else
                                 mem_data[addr] = (ImU8)data_input_value;
+                        }
+                        if (ImGui::IsItemHovered())
+                        {
+                            MouseHovered = true;
+                            MouseHoveredAddr = addr;
                         }
                         ImGui::PopID();
                     }
