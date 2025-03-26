@@ -58,6 +58,7 @@
 
 #pragma once
 
+#include <inttypes.h>   // PRId32, etc.
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
 
@@ -767,16 +768,16 @@ struct MemoryEditor
         {
             int32_t data = 0;
             EndiannessCopy(&data, buf, size);
-            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%d", data); return; }
-            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08x", data); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%" PRId32, data); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08" PRIx32, data); return; }
             break;
         }
         case ImGuiDataType_U32:
         {
             uint32_t data = 0;
             EndiannessCopy(&data, buf, size);
-            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%u", data); return; }
-            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08x", data); return; }
+            if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%" PRIu32, data); return; }
+            if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08" PRIx32, data); return; }
             break;
         }
         case ImGuiDataType_S64:
