@@ -49,6 +49,7 @@
 //                       fixed a data preview crash with 1.91.0 WIP. fixed contiguous highlight color when using data preview.
 //                       *BREAKING* added UserData field passed to all optional function handlers: ReadFn, WriteFn, HighlightFn, BgColorFn. (#50) [@silverweed]
 // - v0.56 (2024/11/04): fixed MouseHovered, MouseHoveredAddr not being set when hovering a byte being edited. (#54)
+// - v0.57 (2025/03/26): fixed warnings. using ImGui's ImSXX/ImUXX types instead of e.g. int32_t/uint32_t. (#56)
 //
 // TODO:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -645,7 +646,7 @@ struct MemoryEditor
 
     bool IsBigEndian() const
     {
-        uint16_t x = 1;
+        ImU16 x = 1;
         char c[2];
         memcpy(c, &x, 2);
         return c[0] != 0;
@@ -655,8 +656,8 @@ struct MemoryEditor
     {
         if (is_little_endian)
         {
-            uint8_t* dst = (uint8_t*)_dst;
-            uint8_t* src = (uint8_t*)_src + s - 1;
+            ImU8* dst = (ImU8*)_dst;
+            ImU8* src = (ImU8*)_src + s - 1;
             for (int i = 0, n = (int)s; i < n; ++i)
                 memcpy(dst++, src--, 1);
             return _dst;
@@ -675,8 +676,8 @@ struct MemoryEditor
         }
         else
         {
-            uint8_t* dst = (uint8_t*)_dst;
-            uint8_t* src = (uint8_t*)_src + s - 1;
+            ImU8* dst = (ImU8*)_dst;
+            ImU8* src = (ImU8*)_src + s - 1;
             for (int i = 0, n = (int)s; i < n; ++i)
                 memcpy(dst++, src--, 1);
             return _dst;
@@ -691,7 +692,7 @@ struct MemoryEditor
         return fp(dst, src, size, PreviewEndianness);
     }
 
-    const char* FormatBinary(const uint8_t* buf, int width) const
+    const char* FormatBinary(const ImU8* buf, int width) const
     {
         IM_ASSERT(width <= 64);
         size_t out_n = 0;
@@ -711,7 +712,7 @@ struct MemoryEditor
     // [Internal]
     void DrawPreviewData(size_t addr, const ImU8* mem_data, size_t mem_size, ImGuiDataType data_type, DataFormat data_format, char* out_buf, size_t out_buf_size) const
     {
-        uint8_t buf[8];
+        ImU8 buf[8];
         size_t elem_size = DataTypeGetSize(data_type);
         size_t size = addr + elem_size > mem_size ? mem_size - addr : elem_size;
         if (ReadFn)
@@ -722,7 +723,7 @@ struct MemoryEditor
 
         if (data_format == DataFormat_Bin)
         {
-            uint8_t binbuf[8];
+            ImU8 binbuf[8];
             EndiannessCopy(binbuf, buf, size);
             ImSnprintf(out_buf, out_buf_size, "%s", FormatBinary(binbuf, (int)size * 8));
             return;
@@ -733,7 +734,7 @@ struct MemoryEditor
         {
         case ImGuiDataType_S8:
         {
-            int8_t data = 0;
+            ImS8 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hhd", data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%02x", data & 0xFF); return; }
@@ -741,7 +742,7 @@ struct MemoryEditor
         }
         case ImGuiDataType_U8:
         {
-            uint8_t data = 0;
+            ImU8 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hhu", data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%02x", data & 0XFF); return; }
@@ -749,7 +750,7 @@ struct MemoryEditor
         }
         case ImGuiDataType_S16:
         {
-            int16_t data = 0;
+            ImS16 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hd", data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%04x", data & 0xFFFF); return; }
@@ -757,7 +758,7 @@ struct MemoryEditor
         }
         case ImGuiDataType_U16:
         {
-            uint16_t data = 0;
+            ImU16 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%hu", data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%04x", data & 0xFFFF); return; }
@@ -765,7 +766,7 @@ struct MemoryEditor
         }
         case ImGuiDataType_S32:
         {
-            int32_t data = 0;
+            ImS32 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%d", data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08x", data); return; }
@@ -773,7 +774,7 @@ struct MemoryEditor
         }
         case ImGuiDataType_U32:
         {
-            uint32_t data = 0;
+            ImU32 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%u", data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%08x", data); return; }
@@ -781,7 +782,7 @@ struct MemoryEditor
         }
         case ImGuiDataType_S64:
         {
-            int64_t data = 0;
+            ImS64 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%lld", (long long)data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%016llx", (long long)data); return; }
@@ -789,7 +790,7 @@ struct MemoryEditor
         }
         case ImGuiDataType_U64:
         {
-            uint64_t data = 0;
+            ImU64 data = 0;
             EndiannessCopy(&data, buf, size);
             if (data_format == DataFormat_Dec) { ImSnprintf(out_buf, out_buf_size, "%llu", (long long)data); return; }
             if (data_format == DataFormat_Hex) { ImSnprintf(out_buf, out_buf_size, "0x%016llx", (long long)data); return; }
