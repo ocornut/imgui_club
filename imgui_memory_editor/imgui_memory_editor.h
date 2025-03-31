@@ -50,6 +50,7 @@
 //                       *BREAKING* added UserData field passed to all optional function handlers: ReadFn, WriteFn, HighlightFn, BgColorFn. (#50) [@silverweed]
 // - v0.56 (2024/11/04): fixed MouseHovered, MouseHoveredAddr not being set when hovering a byte being edited. (#54)
 // - v0.57 (2025/03/26): fixed warnings. using ImGui's ImSXX/ImUXX types instead of e.g. int32_t/uint32_t. (#56)
+// - v0.58 (2025/03/31): fixed extraneous footer spacing (added in 0.51) breaking vertical auto-resize. (#53)
 //
 // TODO:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -489,8 +490,10 @@ struct MemoryEditor
         ImGui::EndChild();
 
         // Notify the main window of our ideal child content size (FIXME: we are missing an API to get the contents size from the child)
+        ImVec2 backup_pos = ImGui::GetCursorScreenPos();
         ImGui::SetCursorPosX(s.WindowWidth);
         ImGui::Dummy(ImVec2(0.0f, 0.0f));
+        ImGui::SetCursorScreenPos(backup_pos);
 
         if (data_next && DataEditingAddr + 1 < mem_size)
         {
