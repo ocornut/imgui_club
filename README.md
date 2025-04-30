@@ -3,6 +3,7 @@
 Officially maintained small extensions for Dear ImGui:
 - [Memory Editor](#imgui_memory_editor)
 - [Multi-Context Compositor](#imgui_multicontext_compositor)
+- [Threaded Rendering](#imgui_threaded_rendering)
 
 <BR>You also can find many useful third-party snippets here: https://github.com/ocornut/imgui/wiki/Useful-Extensions
 
@@ -32,3 +33,9 @@ When using and displaying multiple contexts simultaneously (e.g. Update vs Rende
 - Allow drag and drop between contexts
 
 ![multi_context_compositor.gif](https://github.com/user-attachments/assets/220a9469-db15-419a-8f29-3e0bf7025c84)
+
+# imgui_threaded_rendering
+
+https://github.com/ocornut/imgui_club/tree/main/imgui_threaded_rendering
+
+Helper to take a snapshot of ImDrawData in order to render it later.
