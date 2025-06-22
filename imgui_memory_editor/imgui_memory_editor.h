@@ -63,12 +63,15 @@
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
 
-#if defined(_MSC_VER) || defined(_UCRT)
-#define _PRISizeT   "I"
+#if defined(_MSC_VER) && !defined(snprintf)
 #define ImSnprintf  _snprintf
 #else
-#define _PRISizeT   "z"
 #define ImSnprintf  snprintf
+#endif
+#if defined(_MSC_VER) && !defined(__clang__)
+#define _PRISizeT   "I"
+#else
+#define _PRISizeT   "z"
 #endif
 
 #if defined(_MSC_VER) || defined(_UCRT)
