@@ -20,6 +20,7 @@
 */
 
 // FIXME: Could store an ID in ImDrawList to make this easier for user.
+#pragma once
 #include "imgui_internal.h" // ImPool<>, ImHashData
 
 //-----------------------------------------------------------------------------
@@ -55,7 +56,7 @@ struct ImDrawDataSnapshot
 // ImDrawDataSnapshot - IMPLEMENTATION
 //-----------------------------------------------------------------------------
 
-void ImDrawDataSnapshot::Clear()
+inline void ImDrawDataSnapshot::Clear()
 {
     for (int n = 0; n < Cache.GetMapSize(); n++)
         if (ImDrawDataSnapshotEntry* entry = Cache.TryGetMapData(n))
@@ -64,7 +65,7 @@ void ImDrawDataSnapshot::Clear()
     DrawData.Clear();
 }
 
-void ImDrawDataSnapshot::SnapUsingSwap(ImDrawData* src, double current_time)
+inline void ImDrawDataSnapshot::SnapUsingSwap(ImDrawData* src, double current_time)
 {
     ImDrawData* dst = &DrawData;
     IM_ASSERT(src != dst && src->Valid);
