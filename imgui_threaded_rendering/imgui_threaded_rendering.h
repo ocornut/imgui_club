@@ -3,6 +3,7 @@
 // Licensed under The MIT License (MIT)
 
 // Based on a discussion at https://github.com/ocornut/imgui/issues/1860#issuecomment-1927630727
+// Since 1.92.0, textures also needs to be updated. See discussion at https://github.com/ocornut/imgui/issues/8597
 
 // CHANGELOG:
 // - v0.10: (2025/04/30): initial version. Not well tested.
