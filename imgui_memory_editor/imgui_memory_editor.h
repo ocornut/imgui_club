@@ -699,12 +699,30 @@ struct MemoryEditor
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Dec, buf, (size_t)IM_ARRAYSIZE(buf));
         ImGui::Text("Dec"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
         if (has_value)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy##CopyDec"))
+                ImGui::SetClipboardText(buf);
+        }
+        if (has_value)
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Hex, buf, (size_t)IM_ARRAYSIZE(buf));
         ImGui::Text("Hex"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+        if (has_value)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy##CopyHex"))
+                ImGui::SetClipboardText(buf);
+        }
         if (has_value)
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Bin, buf, (size_t)IM_ARRAYSIZE(buf));
         buf[IM_ARRAYSIZE(buf) - 1] = 0;
         ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+        if (has_value)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy##CopyBin"))
+                ImGui::SetClipboardText(buf);
+        }
     }
 
     // Utilities for Data Preview (since we don't access imgui_internal.h)
