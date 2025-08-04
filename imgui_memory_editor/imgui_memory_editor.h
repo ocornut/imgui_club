@@ -63,6 +63,7 @@
 
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
+#include <ctype.h>      // isxdigit
 #include <inttypes.h>   // PRIdPTR, SCNu64
 #include <stdlib.h>     // malloc, free, abs
 #include <string.h>     // memset, memcpy, strlen
@@ -112,6 +113,9 @@ struct MemoryEditor
     float           OptFooterExtraHeight;                       // = 0      // space to reserve at the bottom of the widget to add custom widgets
     ImU32           HighlightColor;                             //          // background color of highlighted bytes.
     bool            OptAddrInputHex;                            // = true   // display address input in hexadecimal format
+    bool            OptShowSearchPanel;                         // = false  // display search panel
+    bool            OptSearchHex;                               // = true   // search in hex format
+    bool            OptSearchText;                              // = true   // search in utf-8 format
 
     // Function handlers
     ImU8            (*ReadFn)(const ImU8* mem, size_t off, void* user_data);      // = 0      // optional handler to read bytes.
@@ -132,6 +136,7 @@ struct MemoryEditor
     bool            DataEditingTakeFocus;
     char            DataInputBuf[32];
     char            AddrInputBuf[32];
+    char            SearchInputBuf[512];
     size_t          GotoAddr;
     size_t          HighlightMin, HighlightMax;
     int             PreviewEndianness;
@@ -142,6 +147,9 @@ struct MemoryEditor
     size_t          SelectionEnd;
     bool            SelectionChanged;
     ImU32           SelectionColor;                             // background color of selected bytes.
+    bool            SearchRequested;
+    ImU8*           SearchPattern;                              // search pattern bytes
+    size_t          SearchPatternSize;                          // size of search pattern array
     void*           MemData;
     size_t          MemSize;
     float           TargetScrollY;                              // Track current scroll position
@@ -164,6 +172,9 @@ struct MemoryEditor
         OptFooterExtraHeight = 0.0f;
         HighlightColor = IM_COL32(255, 255, 255, 50);
         OptAddrInputHex = true;
+        OptShowSearchPanel = false;
+        OptSearchHex = true;
+        OptSearchText = false;
         ReadFn = nullptr;
         WriteFn = nullptr;
         HighlightFn = nullptr;
@@ -176,6 +187,7 @@ struct MemoryEditor
         DataEditingTakeFocus = false;
         memset(DataInputBuf, 0, sizeof(DataInputBuf));
         memset(AddrInputBuf, 0, sizeof(AddrInputBuf));
+        memset(SearchInputBuf, 0, sizeof(SearchInputBuf));
         GotoAddr = (size_t)-1;
         MouseHovered = false;
         MouseHoveredAddr = 0;
@@ -187,7 +199,16 @@ struct MemoryEditor
         SelectionStart = SelectionEnd = (size_t)-1;
         SelectionChanged = false;
         SelectionColor = IM_COL32(100, 100, 255, 80);
+        SearchRequested = false;
+        SearchPattern = nullptr;
+        SearchPatternSize = 0;
         TargetScrollY = 0.0f;
+    }
+
+    ~MemoryEditor()
+    {
+        if (SearchPattern != nullptr)
+            free(SearchPattern);
     }
 
     static inline float Saturate(float f)
@@ -631,6 +652,9 @@ struct MemoryEditor
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing() * 3;
         if (HasSelection())
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing();
+        if (OptShowSearchPanel)
+            footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 2;
+
         ImGui::BeginChild("##scrolling", ImVec2(-FLT_MIN, -footer_height), ImGuiChildFlags_None, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav);
 
         // Store current scroll position
@@ -881,6 +905,74 @@ struct MemoryEditor
                 {
                     SelectionAnchor = 0;
                     SetSelection(0, mem_size - 1);
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_F) && is_ctrl_down)
+            {
+                // Ctrl+F: Show search panel
+                OptShowSearchPanel = true;
+                // Copy selected text to search input if there is a selection
+                if (HasSelection())
+                {
+                    char* selection_data = nullptr;
+                    if (OptSearchHex)
+                    {
+                        CopySelectionAsHex(&selection_data);
+                    }
+                    else if (OptSearchText)
+                    {
+                        CopySelectionAsUtf8(&selection_data);
+                    }
+                    else // Decimal
+                    {
+                        CopySelectionAsDec(&selection_data);
+                    }
+                    if (selection_data != nullptr)
+                    {
+                        // Clear SearchInputBuf and copy the selection
+                        memset(SearchInputBuf, 0, sizeof(SearchInputBuf));
+
+                        // Determine the maximum length to copy (reserve space for null terminator)
+                        size_t max_len = sizeof(SearchInputBuf) - 1;
+
+                        // For UTF-8, ensure truncation happens at a valid character boundary
+                        if (OptSearchText)
+                        {
+                            size_t valid_len = 0;
+                            size_t pos = 0;
+                            while (pos < strlen(selection_data) && valid_len < max_len)
+                            {
+                                ImU32 codepoint = 0;
+                                int bytes = DecodeUTF8((const ImU8*)selection_data, strlen(selection_data), pos, &codepoint);
+                                if (bytes == 0 || valid_len + bytes > max_len)
+                                    break; // Stop if invalid or would exceed buffer
+                                valid_len += bytes;
+                                pos += bytes;
+                            }
+                            // Copy only the valid UTF-8 portion
+                            ImSnprintf(SearchInputBuf, valid_len + 1, "%s", selection_data);
+                        }
+                        else if (!OptSearchHex && !OptSearchText) // Decimal
+                        {
+                            // For Decimal, truncate at the last space before max_len
+                            size_t copy_len = max_len;
+                            for (size_t i = max_len; i > 0; i--)
+                            {
+                                if (selection_data[i] == ' ')
+                                {
+                                    copy_len = i; // Truncate at the last space
+                                    break;
+                                }
+                            }
+                            ImSnprintf(SearchInputBuf, copy_len + 1, "%s", selection_data);
+                        }
+                        else // Hex
+                        {
+                            // For Hex, copy up to buffer size minus null terminator
+                            ImSnprintf(SearchInputBuf, sizeof(SearchInputBuf) - 1, "%s", selection_data);
+                        }
+                        free(selection_data);
+                    }
                 }
             }
             if (data_editing_addr_next != (size_t)-1 && !scrolled)
@@ -1425,6 +1517,13 @@ struct MemoryEditor
             DrawSelectionLine(s, mem_data, mem_size, base_display_addr);
         }
 
+        // Draw search panel
+        if (OptShowSearchPanel)
+        {
+            ImGui::Separator();
+            DrawSearchLine(s, mem_data, mem_size, base_display_addr);
+        }
+
         const ImVec2 contents_pos_end(contents_pos_start.x + child_width, ImGui::GetCursorScreenPos().y);
         //ImGui::GetForegroundDrawList()->AddRect(contents_pos_start, contents_pos_end, IM_COL32(255, 0, 0, 255));
         if (OptShowOptions)
@@ -1508,6 +1607,7 @@ struct MemoryEditor
             ImGui::Checkbox("Show UTF-8", &OptShowUtf8);
             ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
             ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
+            ImGui::Checkbox("Show Search Panel", &OptShowSearchPanel);
 
             ImGui::EndPopup();
         }
@@ -1710,6 +1810,372 @@ struct MemoryEditor
         if (ImGui::Button("Clear"))
         {
             ClearSelection();
+        }
+    }
+
+    // Check if the current position is a non-breaking space (UTF-8: C2 A0)
+    static bool is_nbsp(const char* p) { return (unsigned char)(p[0]) == 0xC2 && (unsigned char)(p[1]) == 0xA0; }
+
+    // Skip regular spaces and non-breaking spaces (nbsp) in the string
+    static const char* SkipWhitespace(const char* p)
+    {
+        while (*p)
+        {
+            if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+                p += 1;
+            else if (is_nbsp(p)) p += 2;
+            else break;
+        }
+        return p;
+    }
+
+    bool CheckPatternMatch(size_t addr, ImU8* mem_data, size_t mem_size, const ImU8* pattern, size_t pattern_size) const
+    {
+        if (addr + pattern_size > mem_size)
+            return false; // Prevent out-of-bounds access
+
+        // Byte-by-byte matching for Hex, Dec, or case-sensitive UTF-8
+        size_t mem_pos = addr;
+        size_t pat_pos = 0;
+        while (pat_pos < pattern_size && mem_pos < mem_size)
+        {
+            if (pattern[pat_pos] == 0x0A) // Handle \n in pattern
+            {
+                ImU8 mem_byte = ReadFn ? ReadFn(mem_data, mem_pos, UserData) : mem_data[mem_pos];
+                // Check for LF (0x0A) or CRLF (0x0D 0x0A)
+                if (mem_pos < mem_size && mem_byte == 0x0A)
+                {
+                    mem_pos += 1;
+                    pat_pos += 1;
+                    continue;
+                }
+                else if (mem_pos + 1 < mem_size)
+                {
+                    ImU8 mem_byte_next = ReadFn ? ReadFn(mem_data, mem_pos + 1, UserData) : mem_data[mem_pos + 1];
+                    if (mem_byte == 0x0D && mem_byte_next == 0x0A)
+                    {
+                        mem_pos += 2;
+                        pat_pos += 1;
+                        continue;
+                    }
+                }
+                return false;
+            }
+            ImU8 mem_byte = ReadFn ? ReadFn(mem_data, mem_pos, UserData) : mem_data[mem_pos];
+            if (mem_byte != pattern[pat_pos])
+                return false;
+            mem_pos += 1;
+            pat_pos += 1;
+        }
+        return pat_pos == pattern_size && mem_pos <= mem_size;
+    }
+
+    void DrawSearchLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
+    {
+        IM_UNUSED(s);
+        IM_UNUSED(base_display_addr);
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImU8* mem_data = (ImU8*)mem_data_void;
+
+        static bool use_data_preview_format = false;
+        static bool search_backwards = false;
+        static bool search_wrapped = false;
+        static bool search_continuing = false; // Track if search is continuing
+        static bool validation_failed = false; // Unified flag for validation errors
+        static bool is_hex_error = false; // Track if error is hex-specific
+        static bool is_text_error = false; // Track if error is text-specific
+        static size_t current_search_pos = 0;
+        static size_t match_count = 0; // Store total number of pattern matches
+        static ImVector<size_t> match_positions; // Store positions of matches
+
+        // Update current_search_pos and reset state if cursor moves
+        if (DataEditingAddr != (size_t)-1 && current_search_pos != DataEditingAddr)
+        {
+            current_search_pos = DataEditingAddr;
+            search_wrapped = search_continuing = false;
+            match_count = 0; // Reset match count when cursor moves
+            match_positions.clear();
+        }
+
+        // First line: search type and buttons
+        ImGui::Text("Search:");
+        ImGui::SameLine();
+        ImGui::PushID("search_mode");
+        if (ImGui::RadioButton("Hex", OptSearchHex))
+        {
+            OptSearchHex = true;
+            OptSearchText = search_continuing = search_wrapped = validation_failed = false;
+            match_count = 0;
+            match_positions.clear();
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("UTF-8", OptSearchText))
+        {
+            OptSearchText = true;
+            OptSearchHex = search_continuing = search_wrapped = validation_failed = false;
+            match_count = 0;
+            match_positions.clear();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Case sensitive");
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Dec", !OptSearchHex && !OptSearchText))
+        {
+            OptSearchHex = OptSearchText = search_continuing = search_wrapped = validation_failed = false;
+            match_count = 0;
+            match_positions.clear();
+        }
+        ImGui::PopID();
+
+        // Show format option for decimal mode
+        if (!OptSearchHex && !OptSearchText && OptShowDataPreview)
+        {
+            ImGui::SameLine();
+            ImGui::Checkbox("Use preview format", &use_data_preview_format);
+        }
+
+        // Search direction buttons
+        ImGui::SameLine();
+        if (ImGui::Button("Find Prev")) { SearchRequested = search_backwards = true; }
+        ImGui::SameLine();
+        if (ImGui::Button("Find Next")) { SearchRequested = true; search_backwards = false; }
+
+        // Close button
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("X").x);
+        if (ImGui::Button("X")) OptShowSearchPanel = false;
+
+        // Second line: search input and indicators
+        // Calculate available width for search input
+        float input_width = ImGui::GetContentRegionAvail().x -
+                            (validation_failed ? ImGui::CalcTextSize("Invalid decimal format.").x :
+                            (ImGui::CalcTextSize("(0 matches)").x + ImGui::CalcTextSize("(wrapped)").x)) -
+                            style.ItemSpacing.x * (validation_failed ? 1 : 2);
+
+        // Search input field
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue;
+        if (OptSearchText)
+        {
+            ImGui::InputTextMultiline("##search", SearchInputBuf, IM_ARRAYSIZE(SearchInputBuf),
+                                        ImVec2(input_width, ImGui::GetTextLineHeightWithSpacing() + 2), flags);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Multiline text can be entered. Max length of pattern: %d bytes (not symbols).",
+                                    IM_ARRAYSIZE(SearchInputBuf) - 1);
+        }
+        else
+        {
+            ImGui::SetNextItemWidth(input_width);
+            ImGui::InputText("##search", SearchInputBuf, IM_ARRAYSIZE(SearchInputBuf), flags);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Max length of pattern: %d bytes (not symbols).", IM_ARRAYSIZE(SearchInputBuf) - 1);
+        }
+
+        // Display validation error or match count and wrap indicator
+        ImGui::SameLine();
+        if (validation_failed)
+        {
+            const char* err = is_hex_error ? "Invalid hex format." :
+                              is_text_error ? "Invalid UTF-8 text." : "Invalid decimal format.";
+            ImGui::TextColored(ImVec4(1,0,0,1), "%s", err);
+        }
+        else
+        {
+            ImGui::TextDisabled("(%" _PRISizeT "u matches)", match_count);
+            if (search_wrapped) ImGui::SameLine(), ImGui::TextDisabled("(wrapped)");
+        }
+
+        if (!SearchRequested) return;
+
+        // Reset search state
+        SearchRequested = validation_failed = is_hex_error = is_text_error = false;
+        match_count = 0;
+        match_positions.clear();
+        if (SearchPattern) { free(SearchPattern); SearchPattern = nullptr; SearchPatternSize = 0; }
+
+        // Parse search pattern
+        const char* p = SearchInputBuf;
+        if (OptSearchText)
+        {
+            size_t byte_count = strlen(p);
+            if (!byte_count) { validation_failed = is_text_error = true; }
+            else
+            {
+                bool valid = true;
+                while (*p && valid)
+                {
+                    ImU32 codepoint;
+                    int consumed = DecodeUTF8((const ImU8*)p, strlen(p), 0, &codepoint);
+                    if (!consumed) { valid = false; break; }
+                    p += consumed;
+                }
+                if (valid)
+                {
+                    SearchPattern = (ImU8*)malloc(byte_count * sizeof(ImU8));
+                    if (!SearchPattern) { validation_failed = is_text_error = true; }
+                    else { memcpy(SearchPattern, SearchInputBuf, byte_count); SearchPatternSize = byte_count; }
+                }
+                else validation_failed = is_text_error = true;
+            }
+        }
+        else if (OptSearchHex)
+        {
+            size_t capacity = 0;
+            while (*p)
+            {
+                p = SkipWhitespace(p);
+                if (!*p) break;
+                if (!isxdigit(p[0]) || !isxdigit(p[1])) break;
+                capacity++; p += 2;
+            }
+            if (!capacity) { validation_failed = is_hex_error = true; }
+            else
+            {
+                SearchPattern = (ImU8*)malloc(capacity);
+                if (!SearchPattern) { validation_failed = is_hex_error = true; }
+                else
+                {
+                    p = SearchInputBuf;
+                    size_t byte_count = 0;
+                    while (*p && !validation_failed)
+                    {
+                        p = SkipWhitespace(p);
+                        if (!*p) break;
+                        unsigned int byte;
+                        if (!isxdigit(p[0]) || !isxdigit(p[1]) || sscanf(p, "%02X", &byte) != 1)
+                        {
+                            validation_failed = is_hex_error = true;
+                            break;
+                        }
+                        SearchPattern[byte_count++] = (ImU8)byte; p += 2;
+                    }
+                    SearchPatternSize = validation_failed ? 0 : capacity;
+                }
+            }
+        }
+        else // Decimal
+        {
+            if (use_data_preview_format && OptShowDataPreview)
+            {
+                char* cleanInput = (char*)malloc(strlen(p) + 1);
+                if (!cleanInput) { validation_failed = true; }
+                else
+                {
+                    size_t pos = 0;
+                    while (*p) { p = SkipWhitespace(p); if (!*p) break; cleanInput[pos++] = *p++; }
+                    cleanInput[pos] = '\0';
+                    bool valid = pos > 0 && strspn(cleanInput, "0123456789") == pos;
+                    uint64_t value = 0;
+                    if (valid && sscanf(cleanInput, "%" SCNu64, &value) == 1)
+                    {
+                        size_t capacity = DataTypeGetSize(PreviewDataType);
+                        SearchPattern = (ImU8*)malloc(capacity);
+                        if (!SearchPattern) { validation_failed = true; }
+                        else
+                        {
+                            SearchPatternSize = capacity;
+                            for (size_t i = 0; i < capacity; i++)
+                            {
+                                size_t shift = (PreviewEndianness == 1) ? (capacity - 1 - i) * 8 : i * 8;
+                                SearchPattern[i] = (ImU8)((value >> shift) & 0xFF);
+                            }
+                        }
+                    }
+                    else { validation_failed = true; }
+                    free(cleanInput);
+                }
+            }
+            else
+            {
+                size_t capacity = 0;
+                while (*p)
+                {
+                    p = SkipWhitespace(p);
+                    if (!*p) break;
+                    const char* start = p;
+                    while (*p && *p != ' ' && !is_nbsp(p)) p++;
+                    if (p > start) capacity++;
+                }
+                if (!capacity) { validation_failed = true; }
+                else
+                {
+                    SearchPattern = (ImU8*)malloc(capacity);
+                    if (!SearchPattern) { validation_failed = true; }
+                    else
+                    {
+                        p = SearchInputBuf;
+                        size_t i = 0;
+                        while (*p && i < capacity)
+                        {
+                            p = SkipWhitespace(p);
+                            const char* start = p;
+                            while (*p && *p != ' ' && !is_nbsp(p)) p++;
+                            if (p == start) { validation_failed = true; break; }
+                            char temp_buf[16];
+                            size_t len = IM_MIN((size_t)(p - start), sizeof(temp_buf) - 1);
+                            strncpy(temp_buf, start, len); temp_buf[len] = '\0';
+                            unsigned int byte;
+                            if (sscanf(temp_buf, "%u", &byte) != 1 || byte > 255) { validation_failed = true; break; }
+                            SearchPattern[i++] = (ImU8)byte;
+                        }
+                        SearchPatternSize = validation_failed ? 0 : i;
+                    }
+                }
+            }
+        }
+
+        if (validation_failed && SearchPattern) { free(SearchPattern); SearchPattern = nullptr; SearchPatternSize = 0; }
+        if (!SearchPatternSize) return;
+
+        // Search for matches
+        bool found = false;
+        search_wrapped = false;
+        match_count = 0;
+        match_positions.clear();
+        for (size_t addr = 0; addr <= mem_size - SearchPatternSize; addr++)
+        {
+            if (CheckPatternMatch(addr, mem_data, mem_size, SearchPattern, SearchPatternSize))
+            {
+                match_positions.push_back(addr);
+                match_count++;
+            }
+        }
+
+        // Find next/previous match
+        if (match_count)
+        {
+            size_t start_addr = search_backwards ? (current_search_pos >= SearchPatternSize ? current_search_pos - SearchPatternSize : 0) :
+                                                  (search_continuing ? current_search_pos + 1 : current_search_pos);
+            for (int i = search_backwards ? match_positions.size() - 1 : 0;
+                 search_backwards ? i >= 0 : i < match_positions.size();
+                 search_backwards ? i-- : i++)
+            {
+                if ((search_backwards && match_positions[i] <= start_addr) || (!search_backwards && match_positions[i] >= start_addr))
+                {
+                    current_search_pos = match_positions[i];
+                    found = true;
+                    break;
+                }
+            }
+            // Wrap-around search
+            if (!found && (search_backwards ? current_search_pos < mem_size : current_search_pos > 0))
+            {
+                for (int i = search_backwards ? match_positions.size() - 1 : 0;
+                     search_backwards ? i >= 0 : i < match_positions.size();
+                     search_backwards ? i-- : i++)
+                {
+                    if ((search_backwards && match_positions[i] > start_addr) || (!search_backwards && match_positions[i] < start_addr))
+                    {
+                        current_search_pos = match_positions[i];
+                        found = search_wrapped = true;
+                        break;
+                    }
+                }
+            }
+            if (found)
+            {
+                SetSelection(current_search_pos, current_search_pos + SearchPatternSize - 1);
+                GotoAddr = current_search_pos;
+                search_continuing = true;
+            }
         }
     }
 
