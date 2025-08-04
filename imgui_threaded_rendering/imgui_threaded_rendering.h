@@ -19,6 +19,7 @@
     // [Render thread] Render later
     ImGui_ImplDX11_RenderDrawData(&snapshot.DrawData);
 */
+#pragma once
 
 // FIXME: Could store an ID in ImDrawList to make this easier for user.
 #pragma once
