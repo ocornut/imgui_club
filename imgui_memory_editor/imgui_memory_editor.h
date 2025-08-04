@@ -63,6 +63,7 @@
 
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
+#include <inttypes.h>   // PRIdPTR, SCNu64
 
 #if defined(_MSC_VER) && !defined(snprintf)
 #define ImSnprintf  _snprintf
@@ -79,6 +80,9 @@
 #pragma warning (push)
 #pragma warning (disable: 4996) // warning C4996: 'sprintf': This function or variable may be unsafe.
 #endif
+
+#define IM_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define IM_MAX(a, b) ((a) >= (b) ? (a) : (b))
 
 struct MemoryEditor
 {
@@ -129,6 +133,13 @@ struct MemoryEditor
     size_t          HighlightMin, HighlightMax;
     int             PreviewEndianness;
     ImGuiDataType   PreviewDataType;
+    bool            Selecting;
+    size_t          SelectionAnchor;
+    size_t          SelectionStart;
+    size_t          SelectionEnd;
+    bool            SelectionChanged;
+    ImU32           SelectionColor;                             // background color of selected bytes.
+    float           TargetScrollY;                              // Track current scroll position
 
     MemoryEditor()
     {
@@ -165,6 +176,17 @@ struct MemoryEditor
         HighlightMin = HighlightMax = (size_t)-1;
         PreviewEndianness = 0;
         PreviewDataType = ImGuiDataType_S32;
+        Selecting = false;
+        SelectionAnchor = (size_t)-1;
+        SelectionStart = SelectionEnd = (size_t)-1;
+        SelectionChanged = false;
+        SelectionColor = IM_COL32(100, 100, 255, 80);
+        TargetScrollY = 0.0f;
+    }
+
+    static inline float Saturate(float f)
+    {
+        return (f < 0.0f) ? 0.0f : (f > 1.0f) ? 1.0f : f;
     }
 
     void GotoAddrAndHighlight(size_t addr_min, size_t addr_max)
@@ -173,6 +195,27 @@ struct MemoryEditor
         HighlightMin = addr_min;
         HighlightMax = addr_max;
     }
+
+    void SetSelection(size_t start, size_t end)
+    {
+        if (start > end)
+        {
+            size_t temp = start - 1;
+            start = end;
+            end = temp;
+        }
+        SelectionStart = start;
+        SelectionEnd = end;
+        SelectionChanged = true;
+    }
+
+    void ClearSelection()
+    {
+        SelectionStart = SelectionEnd = (size_t)-1;
+        SelectionChanged = true;
+    }
+
+    bool HasSelection() const { return SelectionStart != (size_t)-1 && SelectionEnd != (size_t)-1; }
 
     struct Sizes
     {
@@ -256,7 +299,13 @@ struct MemoryEditor
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1;
         if (OptShowDataPreview)
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing() * 3;
+        if (HasSelection())
+            footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing();
         ImGui::BeginChild("##scrolling", ImVec2(-FLT_MIN, -footer_height), ImGuiChildFlags_None, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav);
+
+        // Store current scroll position
+        TargetScrollY = ImGui::GetScrollY();
+
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -280,11 +329,246 @@ struct MemoryEditor
         size_t data_editing_addr_next = (size_t)-1;
         if (DataEditingAddr != (size_t)-1)
         {
-            // Move cursor but only apply on next frame so scrolling with be synchronized (because currently we can't change the scrolling while the window is being rendered)
-            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && (ptrdiff_t)DataEditingAddr >= (ptrdiff_t)Cols)                 { data_editing_addr_next = DataEditingAddr - Cols; }
-            else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && (ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - Cols){ data_editing_addr_next = DataEditingAddr + Cols; }
-            else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && (ptrdiff_t)DataEditingAddr > (ptrdiff_t)0)              { data_editing_addr_next = DataEditingAddr - 1; }
-            else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && (ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - 1)  { data_editing_addr_next = DataEditingAddr + 1; }
+            const bool is_shift_down = ImGui::GetIO().KeyShift;
+            const bool is_ctrl_down = ImGui::GetIO().KeyCtrl;
+            bool scrolled = false;
+
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+            {
+                if (is_shift_down)
+                {
+                    // Initialize selection anchor if this is the first shift-press
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    // Move selection end up one line
+                    size_t new_addr = (DataEditingAddr >= (size_t)Cols) ? DataEditingAddr - Cols : 0;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    // Regular up arrow - clear selection anchor
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr >= (ptrdiff_t)Cols)
+                        data_editing_addr_next = DataEditingAddr - Cols;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+            {
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    // Move selection end up one line
+                    size_t new_addr = DataEditingAddr + Cols;
+                    if (new_addr >= mem_size) new_addr = mem_size - 1;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - Cols)
+                        data_editing_addr_next = DataEditingAddr + Cols;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+            {
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    size_t new_addr = (DataEditingAddr > 0) ? DataEditingAddr - 1 : 0;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr > 0)
+                        data_editing_addr_next = DataEditingAddr - 1;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+            {
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    size_t new_addr = DataEditingAddr + 1;
+                    if (new_addr >= mem_size) new_addr = mem_size - 1;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - 1)
+                        data_editing_addr_next = DataEditingAddr + 1;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_Home))
+            {
+                size_t line_start = (DataEditingAddr / Cols) * Cols;
+
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+Shift+Home: Select to start of data
+                        SetSelection(SelectionAnchor, 0);
+                        data_editing_addr_next = 0;
+                    }
+                    else
+                    {
+                        // Shift+Home: Select to start of line
+                        SetSelection(SelectionAnchor, line_start);
+                        data_editing_addr_next = line_start;
+                    }
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+Home: Jump to start of data
+                        data_editing_addr_next = 0;
+                    }
+                    else
+                    {
+                        // Home: Jump to start of line
+                        data_editing_addr_next = line_start;
+                    }
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_End))
+            {
+                size_t line_end = ((DataEditingAddr / Cols) * Cols) + Cols - 1;
+                if (line_end >= mem_size) line_end = mem_size - 1;
+
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+Shift+End: Select to end of data
+                        SetSelection(SelectionAnchor, mem_size - 1);
+                        data_editing_addr_next = mem_size - 1;
+                    }
+                    else
+                    {
+                        // Shift+End: Select to end of line
+                        SetSelection(SelectionAnchor, line_end);
+                        data_editing_addr_next = line_end;
+                    }
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+End: Jump to end of data
+                        data_editing_addr_next = mem_size - 1;
+                    }
+                    else
+                    {
+                        // End: Jump to end of line
+                        data_editing_addr_next = line_end;
+                    }
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_PageUp))
+            {
+                int lines_per_page = (int)(ImGui::GetWindowHeight() / s.LineHeight);
+                if (lines_per_page > 0)
+                {
+                    size_t new_addr;
+                    if (DataEditingAddr < (size_t)lines_per_page * Cols)
+                    {
+                        // If less than a page from start, jump to address 0
+                        new_addr = 0;
+                        ImGui::SetScrollY(0.0f);
+                    }
+                    else
+                    {
+                        // Move up one page
+                        new_addr = DataEditingAddr - (size_t)lines_per_page * Cols;
+                        ImGui::SetScrollY(ImGui::GetScrollY() - lines_per_page * s.LineHeight);
+                    }
+
+                    if (is_shift_down)
+                    {
+                        // Shift+PageUp: move selection end up one page
+                        if (SelectionAnchor == (size_t)-1)
+                            SelectionAnchor = DataEditingAddr;
+                        SetSelection(SelectionAnchor, new_addr);
+                    }
+                    else
+                    {
+                        SelectionAnchor = (size_t)-1;
+                    }
+                    data_editing_addr_next = new_addr;
+                    scrolled = true;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_PageDown))
+            {
+                int lines_per_page = (int)(ImGui::GetWindowHeight() / s.LineHeight);
+                if (lines_per_page > 0)
+                {
+                    // Move up one down
+                    size_t new_addr = IM_MIN(mem_size - 1, DataEditingAddr + (size_t)lines_per_page * Cols);
+                    ImGui::SetScrollY(ImGui::GetScrollY() + lines_per_page * s.LineHeight);
+
+                    if (is_shift_down)
+                    {
+                        // Shift+PageDown: move selection end down one page
+                        if (SelectionAnchor == (size_t)-1)
+                            SelectionAnchor = DataEditingAddr;
+                        SetSelection(SelectionAnchor, new_addr);
+                    }
+                    else
+                    {
+                        SelectionAnchor = (size_t)-1;
+                    }
+                    data_editing_addr_next = new_addr;
+                    scrolled = true;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_A) && is_ctrl_down)
+            {
+                // Ctrl+A: Select all
+                if (mem_size > 0)
+                {
+                    SelectionAnchor = 0;
+                    SetSelection(0, mem_size - 1);
+                }
+            }
+            if (data_editing_addr_next != (size_t)-1 && !scrolled)
+            {
+                // Calculate target line and scroll position
+                int target_line = (int)(data_editing_addr_next / Cols);
+                float target_scroll = target_line * s.LineHeight;
+
+                // Smooth scroll to target position
+                if (target_scroll < TargetScrollY)
+                {
+                    ImGui::SetScrollY(target_scroll);
+                }
+                else if (target_scroll > TargetScrollY + ImGui::GetWindowHeight() - s.LineHeight * 2)
+                {
+                    ImGui::SetScrollY(target_scroll - ImGui::GetWindowHeight() + s.LineHeight * 2);
+                }
+            }
         }
 
         // Draw vertical separator
@@ -316,17 +600,62 @@ struct MemoryEditor
                         byte_pos_x += (float)(n / OptMidColsCount) * s.SpacingBetweenMidCols;
                     ImGui::SameLine(byte_pos_x);
 
+                    // Check if mouse is hovering this byte
+                    bool is_byte_hovered = false;
+                    const ImVec2 pos = ImGui::GetCursorScreenPos();
+                    if (ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + s.HexCellWidth, pos.y + s.LineHeight)))
+                    {
+                        is_byte_hovered = true;
+                        MouseHovered = true;
+                        MouseHoveredAddr = addr;
+                    }
+
+                    // Handle selection
+                    if (is_byte_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup))
+                    {
+                        if (ImGui::GetIO().KeyShift && HasSelection() && SelectionAnchor != (size_t)-1)
+                        {
+                            // Extend existing selection using SelectionAnchor
+                            if (SelectionAnchor != (size_t)-1)
+                            {
+                                SetSelection(SelectionAnchor, addr);
+                                Selecting = false;
+                            }
+                        }
+                        else
+                        {
+                            // Start new selection without Shift
+                            SelectionAnchor = addr;
+                            SetSelection(addr, addr);
+                            Selecting = true;
+                        }
+                    }
+
+                    // Mouse drag handling
+                    if (is_byte_hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                    {
+                        SetSelection(SelectionAnchor, addr);
+                        Selecting = true;
+                    }
+                    else if (Selecting && is_byte_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                    {
+                        DataEditingAddr = DataPreviewAddr = addr;
+                        DataEditingTakeFocus = true;
+                        Selecting = false;
+                    }
+
                     // Draw highlight or custom background color
                     const bool is_highlight_from_user_range = (addr >= HighlightMin && addr < HighlightMax);
                     const bool is_highlight_from_user_func = (HighlightFn && HighlightFn(mem_data, addr, UserData));
                     const bool is_highlight_from_preview = (addr >= DataPreviewAddr && addr < DataPreviewAddr + preview_data_type_size);
+                    const bool is_selected = HasSelection() && addr >= SelectionStart && addr <= SelectionEnd;
 
                     ImU32 bg_color = 0;
                     bool is_next_byte_highlighted = false;
-                    if (is_highlight_from_user_range || is_highlight_from_user_func || is_highlight_from_preview)
+                    if (is_highlight_from_user_range || is_highlight_from_user_func || is_highlight_from_preview || is_selected)
                     {
-                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1, UserData)) || (addr + 1 < DataPreviewAddr + preview_data_type_size));
-                        bg_color = HighlightColor;
+                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1, UserData)) || (addr + 1 < DataPreviewAddr + preview_data_type_size) || (is_selected && addr + 1 <= SelectionEnd));
+                        bg_color = is_selected ? SelectionColor : HighlightColor;
                     }
                     else if (BgColorFn != nullptr)
                     {
@@ -342,7 +671,6 @@ struct MemoryEditor
                             if (OptMidColsCount > 0 && n > 0 && (n + 1) < Cols && ((n + 1) % OptMidColsCount) == 0)
                                 bg_width += s.SpacingBetweenMidCols;
                         }
-                        ImVec2 pos = ImGui::GetCursorScreenPos();
                         draw_list->AddRectFilled(pos, ImVec2(pos.x + bg_width, pos.y + s.LineHeight), bg_color);
                     }
 
@@ -458,31 +786,114 @@ struct MemoryEditor
                     ImVec2 pos = ImGui::GetCursorScreenPos();
                     addr = (size_t)line_i * Cols;
 
+                    // Render continuous selection background
+                    if (HasSelection())
+                    {
+                        size_t sel_start = IM_MAX(SelectionStart, (size_t)line_i * Cols);
+                        size_t sel_end = IM_MIN(SelectionEnd, IM_MIN((size_t)line_i * Cols + Cols - 1, mem_size - 1));
+                        if (sel_start <= sel_end && sel_end >= addr)
+                        {
+                            float sel_start_x = pos.x;
+                            float sel_end_x = pos.x;
+                            size_t temp_addr = addr;
+                            float current_x = 0.0f;
+                            // Calculate position of sel_start
+                            while (temp_addr < sel_start && temp_addr < mem_size)
+                            {
+                                float char_width = s.GlyphWidth;
+                                int bytes = 1;
+                                current_x += char_width;
+                                temp_addr += bytes;
+                            }
+                            sel_start_x = pos.x + current_x;
+                            while (temp_addr <= sel_end && temp_addr < mem_size)
+                            {
+                                float char_width = s.GlyphWidth;
+                                int bytes = 1;
+                                sel_end_x = pos.x + current_x + char_width;
+                                current_x += char_width;
+                                temp_addr += bytes;
+                            }
+                            if (sel_start_x < sel_end_x)
+                                draw_list->AddRectFilled(ImVec2(sel_start_x, pos.y), ImVec2(sel_end_x, pos.y + s.LineHeight), SelectionColor);
+                        }
+                    }
+
+                    // Handle mouse interaction
                     const float mouse_off_x = ImGui::GetIO().MousePos.x - pos.x;
-                    const size_t mouse_addr = (mouse_off_x >= 0.0f && mouse_off_x < s.OffsetAsciiMaxX - s.OffsetAsciiMinX) ? addr + (size_t)(mouse_off_x / s.GlyphWidth) : (size_t)-1;
+                    size_t mouse_addr = (size_t)-1;
+                    if (mouse_off_x >= 0.0f && mouse_off_x < s.OffsetAsciiMaxX - s.OffsetAsciiMinX)
+                    {
+                        size_t line_end = IM_MIN((size_t)line_i * Cols + Cols - 1, mem_size - 1);
+                        size_t temp_addr = (size_t)line_i * Cols;
+                        float current_x = 0.0f;
+                        size_t last_valid_addr = temp_addr;
+                        float last_valid_x = current_x;
+                        while (temp_addr <= line_end && temp_addr < mem_size)
+                        {
+                            float char_width = s.GlyphWidth;
+                            int bytes = 1;
+                            if (current_x <= mouse_off_x && mouse_off_x < current_x + char_width)
+                            {
+                                mouse_addr = temp_addr;
+                                break;
+                            }
+                            last_valid_addr = temp_addr;
+                            last_valid_x = current_x;
+                            current_x += char_width;
+                            temp_addr += bytes;
+                        }
+                        if (mouse_addr == (size_t)-1 && last_valid_addr <= line_end && mouse_off_x >= last_valid_x)
+                            mouse_addr = last_valid_addr;
+                    }
 
                     ImGui::PushID(line_i);
-                    if (ImGui::InvisibleButton("ascii", ImVec2(s.OffsetAsciiMaxX - s.OffsetAsciiMinX, s.LineHeight)))
-                    {
-                        DataEditingAddr = DataPreviewAddr = mouse_addr;
-                        DataEditingTakeFocus = true;
-                    }
+                    ImGui::InvisibleButton("ascii", ImVec2(s.OffsetAsciiMaxX - s.OffsetAsciiMinX, s.LineHeight));
                     if (ImGui::IsItemHovered())
                     {
                         MouseHovered = true;
                         MouseHoveredAddr = mouse_addr;
+                        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup))
+                        {
+                            if (ImGui::GetIO().KeyShift && HasSelection() && SelectionAnchor != (size_t)-1)
+                            {
+                                SetSelection(SelectionAnchor, mouse_addr);
+                                Selecting = false;
+                            }
+                            else
+                            {
+                                SelectionAnchor = mouse_addr;
+                                SetSelection(mouse_addr, mouse_addr);
+                                Selecting = true;
+                            }
+                            DataEditingAddr = DataPreviewAddr = mouse_addr;
+                            DataEditingTakeFocus = true;
+                        }
                     }
                     ImGui::PopID();
                     for (int n = 0; n < Cols && addr < mem_size; n++, addr++)
                     {
+                        float char_width = s.GlyphWidth;
+                        bool is_byte_hovered = ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight));
+                        if (is_byte_hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                        {
+                            SetSelection(SelectionAnchor, mouse_addr);
+                            Selecting = true;
+                        }
+                        else if (Selecting && is_byte_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                        {
+                            DataEditingAddr = DataPreviewAddr = mouse_addr;
+                            DataEditingTakeFocus = true;
+                            Selecting = false;
+                        }
                         if (addr == DataEditingAddr)
                         {
-                            draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_FrameBg));
-                            draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_TextSelectedBg));
+                            draw_list->AddRectFilled(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_FrameBg));
+                            draw_list->AddRectFilled(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_TextSelectedBg));
                         }
-                        else if (BgColorFn)
+                        else if (BgColorFn && (!HasSelection() || addr < SelectionStart || addr > SelectionEnd))
                         {
-                            draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), BgColorFn(mem_data, addr, UserData));
+                            draw_list->AddRectFilled(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight), BgColorFn(mem_data, addr, UserData));
                         }
                         unsigned char c = ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr];
                         char display_c = (c < 32 || c >= 128) ? '.' : c;
@@ -492,6 +903,41 @@ struct MemoryEditor
                 }
             }
         ImGui::PopStyleVar(2);
+
+        // Handle scrolling when dragging outside the visible bytes
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Left) && SelectionAnchor != (size_t)-1 && Selecting)
+        {
+            ImVec2 mouse_pos_screen = ImGui::GetMousePos();
+            ImVec2 child_screen_pos = ImGui::GetWindowPos();
+            ImVec2 mouse_pos_relative_to_child = ImVec2(mouse_pos_screen.x - child_screen_pos.x, mouse_pos_screen.y - child_screen_pos.y);
+
+            float scroll_speed = 0.0f;
+            float window_height = ImGui::GetWindowHeight();
+            float fast_scroll_threshold = 70.0f;
+            float base_speed_factor = 0.01f;
+            float max_speed_factor = 0.5f;
+
+            // Checking the upper bound of the visible area
+            if (mouse_pos_relative_to_child.y < 0.0f)
+            {
+                float distance = 0.0f - mouse_pos_relative_to_child.y;
+                float delta = Saturate(distance / fast_scroll_threshold);
+                scroll_speed = -s.LineHeight * (base_speed_factor + delta * max_speed_factor);
+            }
+            // Checking the lower bound of the visible area
+            else if (mouse_pos_relative_to_child.y > window_height)
+            {
+                float distance = mouse_pos_relative_to_child.y - window_height;
+                float delta = Saturate(distance / fast_scroll_threshold);
+                scroll_speed = s.LineHeight * (base_speed_factor + delta * max_speed_factor);
+            }
+
+            if (scroll_speed != 0.0f)
+            {
+                ImGui::SetScrollY(ImGui::GetScrollY() + scroll_speed);
+            }
+        }
+
         const float child_width = ImGui::GetWindowSize().x;
         ImGui::EndChild();
 
@@ -538,6 +984,13 @@ struct MemoryEditor
             }
             GotoAddr = (size_t)-1;
             LastEditingAddr = GotoAddr; // Update LastEditingAddr
+        }
+
+        // Draw selection panel
+        if (HasSelection())
+        {
+            ImGui::Separator();
+            DrawSelectionLine(s, mem_data, mem_size, base_display_addr);
         }
 
         const ImVec2 contents_pos_end(contents_pos_start.x + child_width, ImGui::GetCursorScreenPos().y);
@@ -665,6 +1118,46 @@ struct MemoryEditor
         //    ImGui::SameLine();
         //    ImGui::Text("Hovered: %p", MouseHoveredAddr);
         //}
+    }
+
+    void DrawSelectionLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
+    {
+        IM_UNUSED(mem_data_void);
+        IM_UNUSED(mem_size);
+
+        const char* format_hex = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
+        const char* format_dec = "%" _PRISizeT "u";
+
+        char start_buf[64];
+        char end_buf[64];
+        char range[132];
+
+        if (OptAddrInputHex)
+        {
+            ImSnprintf(start_buf, sizeof(start_buf), format_hex, s.AddrDigitsCount, base_display_addr + SelectionStart);
+            ImSnprintf(end_buf, sizeof(end_buf), format_hex, s.AddrDigitsCount, base_display_addr + SelectionEnd);
+        }
+        else
+        {
+            ImSnprintf(start_buf, sizeof(start_buf), format_dec, base_display_addr + SelectionStart);
+            ImSnprintf(end_buf, sizeof(end_buf), format_dec, base_display_addr + SelectionEnd);
+        }
+
+        ImSnprintf(range, sizeof(range), "%s..%s", start_buf, end_buf);
+
+        ImGui::Text("Selection: %s (%" PRIdPTR " bytes)", range,
+                    (ptrdiff_t)(SelectionEnd - SelectionStart) >= 0 ?
+                    (ptrdiff_t)(SelectionEnd - SelectionStart) + 1 :
+                    -((ptrdiff_t)(SelectionEnd - SelectionStart)) + 1);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy range"))
+            ImGui::SetClipboardText(range);
+
+        ImGui::SameLine();
+        if (ImGui::Button("Clear"))
+        {
+            ClearSelection();
+        }
     }
 
     void DrawPreviewLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
@@ -924,6 +1417,8 @@ struct MemoryEditor
     }
 };
 
+#undef IM_MAX
+#undef IM_MIN
 #undef _PRISizeT
 #undef ImSnprintf
 
