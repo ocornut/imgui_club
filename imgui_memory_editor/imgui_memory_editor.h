@@ -260,6 +260,7 @@ struct MemoryEditor
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
         // We are not really using the clipper API correctly here, because we rely on visible_start_addr/visible_end_addr for our scrolling function.
+        const ImVec2 avail_size = ImGui::GetContentRegionAvail();
         const int line_total_count = (int)((mem_size + Cols - 1) / Cols);
         ImGuiListClipper clipper;
         clipper.Begin(line_total_count, s.LineHeight);
@@ -528,7 +529,7 @@ struct MemoryEditor
             if (GotoAddr < mem_size)
             {
                 ImGui::BeginChild("##scrolling");
-                ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + (GotoAddr / Cols) * ImGui::GetTextLineHeight());
+                ImGui::SetScrollY((GotoAddr / Cols) * ImGui::GetTextLineHeight() - avail_size.y * 0.5f);
                 ImGui::EndChild();
                 DataEditingAddr = DataPreviewAddr = GotoAddr;
                 DataEditingTakeFocus = true;
