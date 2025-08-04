@@ -51,6 +51,7 @@
 // - v0.56 (2024/11/04): fixed MouseHovered, MouseHoveredAddr not being set when hovering a byte being edited. (#54)
 // - v0.57 (2025/03/26): fixed warnings. using ImGui's ImSXX/ImUXX types instead of e.g. int32_t/uint32_t. (#56)
 // - v0.58 (2025/03/31): fixed extraneous footer spacing (added in 0.51) breaking vertical auto-resize. (#53)
+// - v0.59 (2025/04/08): fixed GotoAddrAndHighlight() not working if OptShowOptions is disabled.
 //
 // TODO:
 // - This is generally old/crappy code, it should work but isn't very good.. to be rewritten some day.
@@ -522,6 +523,19 @@ struct MemoryEditor
             DrawPreviewLine(s, mem_data, mem_size, base_display_addr);
         }
 
+        if (GotoAddr != (size_t)-1)
+        {
+            if (GotoAddr < mem_size)
+            {
+                ImGui::BeginChild("##scrolling");
+                ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + (GotoAddr / Cols) * ImGui::GetTextLineHeight());
+                ImGui::EndChild();
+                DataEditingAddr = DataPreviewAddr = GotoAddr;
+                DataEditingTakeFocus = true;
+            }
+            GotoAddr = (size_t)-1;
+        }
+
         const ImVec2 contents_pos_end(contents_pos_start.x + child_width, ImGui::GetCursorScreenPos().y);
         //ImGui::GetForegroundDrawList()->AddRect(contents_pos_start, contents_pos_end, IM_COL32(255, 0, 0, 255));
         if (OptShowOptions)
@@ -565,19 +579,6 @@ struct MemoryEditor
                 GotoAddr = goto_addr - base_display_addr;
                 HighlightMin = HighlightMax = (size_t)-1;
             }
-        }
-
-        if (GotoAddr != (size_t)-1)
-        {
-            if (GotoAddr < mem_size)
-            {
-                ImGui::BeginChild("##scrolling");
-                ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + (GotoAddr / Cols) * ImGui::GetTextLineHeight());
-                ImGui::EndChild();
-                DataEditingAddr = DataPreviewAddr = GotoAddr;
-                DataEditingTakeFocus = true;
-            }
-            GotoAddr = (size_t)-1;
         }
 
         //if (MouseHovered)
