@@ -64,6 +64,8 @@
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
 #include <inttypes.h>   // PRIdPTR, SCNu64
+#include <stdlib.h>     // malloc, free, abs
+#include <string.h>     // memset, memcpy, strlen
 
 #if defined(_MSC_VER) && !defined(snprintf)
 #define ImSnprintf  _snprintf
@@ -139,6 +141,8 @@ struct MemoryEditor
     size_t          SelectionEnd;
     bool            SelectionChanged;
     ImU32           SelectionColor;                             // background color of selected bytes.
+    void*           MemData;
+    size_t          MemSize;
     float           TargetScrollY;                              // Track current scroll position
 
     MemoryEditor()
@@ -217,6 +221,98 @@ struct MemoryEditor
 
     bool HasSelection() const { return SelectionStart != (size_t)-1 && SelectionEnd != (size_t)-1; }
 
+    void CopySelectionAsHex(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 3;
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end; ++i)
+        {
+            char buf[4];
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            ImSnprintf(buf, sizeof(buf), OptUpperCaseHex ? "%02X " : "%02x ", byte);
+            memcpy(*out + pos, buf, strlen(buf));
+            pos += strlen(buf);
+        }
+        if (pos > 0) (*out)[pos - 1] = '\0';
+    }
+
+    void CopySelectionAsDec(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 4;
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end; ++i)
+        {
+            char buf[5];
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            ImSnprintf(buf, sizeof(buf), "%d ", byte);
+            memcpy(*out + pos, buf, strlen(buf));
+            pos += strlen(buf);
+        }
+        if (pos > 0) (*out)[pos - 1] = '\0';
+    }
+
+    void CopySelectionAsBin(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 9;
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end; ++i)
+        {
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            for (int j = 7; j >= 0; --j)
+                (*out)[pos++] = (byte & (1 << j)) ? '1' : '0';
+            (*out)[pos++] = ' ';
+        }
+        if (pos > 0) (*out)[pos - 1] = '\0';
+    }
+
+    void CopySelectionAsAscii(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 4 + 1; // Max 4 bytes per char (conservative for ANSI)
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end && pos < len - 1; ++i)
+        {
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            (*out)[pos++] = (byte >= 32 && byte < 128) ? (char)byte : '.';
+        }
+        (*out)[pos] = '\0';
+    }
+
     struct Sizes
     {
         int     AddrDigitsCount;            // Number of digits required to represent maximum address.
@@ -281,6 +377,9 @@ struct MemoryEditor
     // Memory Editor contents only
     void DrawContents(void* mem_data_void, size_t mem_size, size_t base_display_addr = 0x0000)
     {
+        MemData = mem_data_void;
+        MemSize = mem_size;
+
         if (Cols < 1)
             Cols = 1;
 
@@ -1000,8 +1099,64 @@ struct MemoryEditor
                 if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
                     ImGui::OpenPopup("OptionsPopup");
 
+        // Copy selection to clipboard as hex when Ctrl+C is pressed, but only if no text input is active
+        if (HasSelection() && ImGui::IsKeyPressed(ImGuiKey_C) && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput)
+        {
+            char* hex = nullptr;
+            CopySelectionAsHex(&hex);
+            if (hex != nullptr)
+            {
+                ImGui::SetClipboardText(hex);
+                free(hex);
+            }
+        }
+
         if (ImGui::BeginPopup("OptionsPopup"))
         {
+            if (HasSelection())
+            {
+                if (ImGui::MenuItem("Copy as Hex", "Ctrl+C"))
+                {
+                    char* hex = nullptr;
+                    CopySelectionAsHex(&hex);
+                    if (hex != nullptr)
+                    {
+                        ImGui::SetClipboardText(hex);
+                        free(hex);
+                    }
+                }
+                if (ImGui::MenuItem("Copy as Dec"))
+                {
+                    char* dec = nullptr;
+                    CopySelectionAsDec(&dec);
+                    if (dec != nullptr)
+                    {
+                        ImGui::SetClipboardText(dec);
+                        free(dec);
+                    }
+                }
+                if (ImGui::MenuItem("Copy as Bin"))
+                {
+                    char* bin = nullptr;
+                    CopySelectionAsBin(&bin);
+                    if (bin != nullptr)
+                    {
+                        ImGui::SetClipboardText(bin);
+                        free(bin);
+                    }
+                }
+                if (ImGui::MenuItem("Copy as ASCII"))
+                {
+                    char* ascii = nullptr;
+                    CopySelectionAsAscii(&ascii);
+                    if (ascii != nullptr)
+                    {
+                        ImGui::SetClipboardText(ascii);
+                        free(ascii);
+                    }
+                }
+                ImGui::Separator();
+            }
             ImGui::SetNextItemWidth(s.GlyphWidth * 7 + style.FramePadding.x * 2.0f);
             if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; if (Cols < 1) Cols = 1; }
             ImGui::Checkbox("Show Data Preview", &OptShowDataPreview);
@@ -1153,6 +1308,49 @@ struct MemoryEditor
         if (ImGui::SmallButton("Copy range"))
             ImGui::SetClipboardText(range);
 
+        if (ImGui::Button("Copy Hex"))
+        {
+            char* hex = nullptr;
+            CopySelectionAsHex(&hex);
+            if (hex != nullptr)
+            {
+                ImGui::SetClipboardText(hex);
+                free(hex);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy Dec"))
+        {
+            char* dec = nullptr;
+            CopySelectionAsDec(&dec);
+            if (dec != nullptr)
+            {
+                ImGui::SetClipboardText(dec);
+                free(dec);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy Bin"))
+        {
+            char* bin = nullptr;
+            CopySelectionAsBin(&bin);
+            if (bin != nullptr)
+            {
+                ImGui::SetClipboardText(bin);
+                free(bin);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy ASCII"))
+        {
+            char* ascii = nullptr;
+            CopySelectionAsAscii(&ascii);
+            if (ascii != nullptr)
+            {
+                ImGui::SetClipboardText(ascii);
+                free(ascii);
+            }
+        }
         ImGui::SameLine();
         if (ImGui::Button("Clear"))
         {
