@@ -104,6 +104,7 @@ struct MemoryEditor
     int             OptAddrDigitsCount;                         // = 0      // number of addr digits to display (default calculated based on maximum displayed addr).
     float           OptFooterExtraHeight;                       // = 0      // space to reserve at the bottom of the widget to add custom widgets
     ImU32           HighlightColor;                             //          // background color of highlighted bytes.
+    bool            OptAddrInputHex;                            // = true   // display address input in hexadecimal format
 
     // Function handlers
     ImU8            (*ReadFn)(const ImU8* mem, size_t off, void* user_data);      // = 0      // optional handler to read bytes.
@@ -120,6 +121,7 @@ struct MemoryEditor
     bool            ContentsWidthChanged;
     size_t          DataPreviewAddr;
     size_t          DataEditingAddr;
+    size_t          LastEditingAddr;
     bool            DataEditingTakeFocus;
     char            DataInputBuf[32];
     char            AddrInputBuf[32];
@@ -144,6 +146,7 @@ struct MemoryEditor
         OptAddrDigitsCount = 0;
         OptFooterExtraHeight = 0.0f;
         HighlightColor = IM_COL32(255, 255, 255, 50);
+        OptAddrInputHex = true;
         ReadFn = nullptr;
         WriteFn = nullptr;
         HighlightFn = nullptr;
@@ -152,7 +155,7 @@ struct MemoryEditor
 
         // State/Internals
         ContentsWidthChanged = false;
-        DataPreviewAddr = DataEditingAddr = (size_t)-1;
+        DataPreviewAddr = DataEditingAddr = LastEditingAddr = (size_t)-1;
         DataEditingTakeFocus = false;
         memset(DataInputBuf, 0, sizeof(DataInputBuf));
         memset(AddrInputBuf, 0, sizeof(AddrInputBuf));
@@ -293,7 +296,6 @@ struct MemoryEditor
         const ImU32 color_disabled = OptGreyOutZeroes ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : color_text;
 
         const char* format_address = OptUpperCaseHex ? "%0*" _PRISizeT "X: " : "%0*" _PRISizeT "x: ";
-        const char* format_data = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
         const char* format_byte = OptUpperCaseHex ? "%02X" : "%02x";
         const char* format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
 
@@ -352,7 +354,6 @@ struct MemoryEditor
                         if (DataEditingTakeFocus)
                         {
                             ImGui::SetKeyboardFocusHere(0);
-                            ImSnprintf(AddrInputBuf, 32, format_data, s.AddrDigitsCount, base_display_addr + addr);
                             ImSnprintf(DataInputBuf, 32, format_byte, ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr]);
                         }
                         struct InputTextUserData
@@ -508,6 +509,7 @@ struct MemoryEditor
         else if (data_editing_addr_next != (size_t)-1)
         {
             DataEditingAddr = DataPreviewAddr = data_editing_addr_next;
+            LastEditingAddr = DataEditingAddr;
             DataEditingTakeFocus = true;
         }
 
@@ -535,6 +537,7 @@ struct MemoryEditor
                 DataEditingTakeFocus = true;
             }
             GotoAddr = (size_t)-1;
+            LastEditingAddr = GotoAddr; // Update LastEditingAddr
         }
 
         const ImVec2 contents_pos_end(contents_pos_start.x + child_width, ImGui::GetCursorScreenPos().y);
@@ -562,23 +565,98 @@ struct MemoryEditor
     {
         IM_UNUSED(mem_data);
         ImGuiStyle& style = ImGui::GetStyle();
-        const char* format_range = OptUpperCaseHex ? "Range %0*" _PRISizeT "X..%0*" _PRISizeT "X" : "Range %0*" _PRISizeT "x..%0*" _PRISizeT "x";
 
         // Options menu
         if (ImGui::Button("Options"))
             ImGui::OpenPopup("OptionsPopup");
 
         ImGui::SameLine();
-        ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
+
+        // Draw address input mode selection
+        ImGui::PushID("addr_input_mode");
+        bool format_changed = false;
+        if (ImGui::RadioButton("Hex", OptAddrInputHex))
+        {
+            OptAddrInputHex = true;
+            format_changed = true;
+        }
         ImGui::SameLine();
+        if (ImGui::RadioButton("Dec", !OptAddrInputHex))
+        {
+            OptAddrInputHex = false;
+            format_changed = true;
+        }
+        ImGui::PopID();
+        ImGui::SameLine();
+
+        // Define formats for address: with width for display, without for parsing
+        const char* addr_format = OptAddrInputHex ? (OptUpperCaseHex ? "%" _PRISizeT "X" : "%" _PRISizeT "x") : "%" _PRISizeT "u";
+        const char* addr_format_with_width = OptAddrInputHex ? (OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x") : "%" _PRISizeT "u";
+
+        // Build range format for displaying address range
+        char format_range[32];
+        ImSnprintf(format_range, IM_ARRAYSIZE(format_range), "| Range %s..%s | Go to:", addr_format_with_width, addr_format_with_width);
+
+        // Display address range
+        if (OptAddrInputHex)
+        {
+            ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
+        }
+        else
+        {
+            ImGui::Text(format_range, base_display_addr, base_display_addr + mem_size - 1);
+        }
+        ImGui::SameLine();
+
+        // Update AddrInputBuf when format or DataEditingAddr changes
+        if (format_changed || DataEditingAddr != (size_t)-1)
+        {
+            size_t addr_to_display = (size_t)-1;
+            if (DataEditingAddr != (size_t)-1)
+            {
+                // Use DataEditingAddr and update LastEditingAddr
+                LastEditingAddr = DataEditingAddr;
+                addr_to_display = DataEditingAddr;
+            }
+            else if (LastEditingAddr != (size_t)-1)
+            {
+                // Use LastEditingAddr if no active editing
+                addr_to_display = LastEditingAddr;
+            }
+
+            if (addr_to_display != (size_t)-1)
+            {
+                if (OptAddrInputHex)
+                {
+                    ImSnprintf(AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), addr_format_with_width,
+                                s.AddrDigitsCount, base_display_addr + addr_to_display);
+                }
+                else
+                {
+                    ImSnprintf(AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), addr_format_with_width,
+                                base_display_addr + addr_to_display);
+                }
+            }
+            else
+            {
+                // Clear input if no valid address
+                AddrInputBuf[0] = '\0';
+            }
+        }
+
+        // Draw address input field
         ImGui::SetNextItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
-        if (ImGui::InputText("##addr", AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
+        ImGuiInputTextFlags flags = OptAddrInputHex ? ImGuiInputTextFlags_CharsHexadecimal : ImGuiInputTextFlags_CharsDecimal;
+        flags |= ImGuiInputTextFlags_EnterReturnsTrue;
+
+        if (ImGui::InputText("##addr", AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), flags))
         {
             size_t goto_addr;
-            if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
+            if (sscanf(AddrInputBuf, addr_format, &goto_addr) == 1)
             {
                 GotoAddr = goto_addr - base_display_addr;
                 HighlightMin = HighlightMax = (size_t)-1;
+                LastEditingAddr = GotoAddr; // Update LastEditingAddr
             }
         }
 
