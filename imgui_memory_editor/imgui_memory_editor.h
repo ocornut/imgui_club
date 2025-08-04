@@ -63,6 +63,10 @@
 
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
+#include <ctype.h>      // isxdigit
+#include <inttypes.h>   // PRIdPTR, SCNu64
+#include <stdlib.h>     // malloc, free, abs
+#include <string.h>     // memset, memcpy, strlen
 
 #if defined(_MSC_VER) && !defined(snprintf)
 #define ImSnprintf  _snprintf
@@ -79,6 +83,9 @@
 #pragma warning (push)
 #pragma warning (disable: 4996) // warning C4996: 'sprintf': This function or variable may be unsafe.
 #endif
+
+#define IM_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define IM_MAX(a, b) ((a) >= (b) ? (a) : (b))
 
 struct MemoryEditor
 {
@@ -98,12 +105,17 @@ struct MemoryEditor
     bool            OptShowDataPreview;                         // = false  // display a footer previewing the decimal/binary/hex/float representation of the currently selected bytes.
     bool            OptShowHexII;                               // = false  // display values in HexII representation instead of regular hexadecimal: hide null/zero bytes, ascii values as ".X".
     bool            OptShowAscii;                               // = true   // display ASCII representation on the right side.
+    bool            OptShowUtf8;                                // = false  // display UTF-8 representation on the right side.
     bool            OptGreyOutZeroes;                           // = true   // display null/zero bytes using the TextDisabled color.
     bool            OptUpperCaseHex;                            // = true   // display hexadecimal values as "FF" instead of "ff".
     int             OptMidColsCount;                            // = 8      // set to 0 to disable extra spacing between every mid-cols.
     int             OptAddrDigitsCount;                         // = 0      // number of addr digits to display (default calculated based on maximum displayed addr).
     float           OptFooterExtraHeight;                       // = 0      // space to reserve at the bottom of the widget to add custom widgets
     ImU32           HighlightColor;                             //          // background color of highlighted bytes.
+    bool            OptAddrInputHex;                            // = true   // display address input in hexadecimal format
+    bool            OptShowSearchPanel;                         // = false  // display search panel
+    bool            OptSearchHex;                               // = true   // search in hex format
+    bool            OptSearchText;                              // = true   // search in utf-8 format
 
     // Function handlers
     ImU8            (*ReadFn)(const ImU8* mem, size_t off, void* user_data);      // = 0      // optional handler to read bytes.
@@ -120,13 +132,27 @@ struct MemoryEditor
     bool            ContentsWidthChanged;
     size_t          DataPreviewAddr;
     size_t          DataEditingAddr;
+    size_t          LastEditingAddr;
     bool            DataEditingTakeFocus;
     char            DataInputBuf[32];
     char            AddrInputBuf[32];
+    char            SearchInputBuf[512];
     size_t          GotoAddr;
     size_t          HighlightMin, HighlightMax;
     int             PreviewEndianness;
     ImGuiDataType   PreviewDataType;
+    bool            Selecting;
+    size_t          SelectionAnchor;
+    size_t          SelectionStart;
+    size_t          SelectionEnd;
+    bool            SelectionChanged;
+    ImU32           SelectionColor;                             // background color of selected bytes.
+    bool            SearchRequested;
+    ImU8*           SearchPattern;                              // search pattern bytes
+    size_t          SearchPatternSize;                          // size of search pattern array
+    void*           MemData;
+    size_t          MemSize;
+    float           TargetScrollY;                              // Track current scroll position
 
     MemoryEditor()
     {
@@ -138,12 +164,17 @@ struct MemoryEditor
         OptShowDataPreview = false;
         OptShowHexII = false;
         OptShowAscii = true;
+        OptShowUtf8 = false;
         OptGreyOutZeroes = true;
         OptUpperCaseHex = true;
         OptMidColsCount = 8;
         OptAddrDigitsCount = 0;
         OptFooterExtraHeight = 0.0f;
         HighlightColor = IM_COL32(255, 255, 255, 50);
+        OptAddrInputHex = true;
+        OptShowSearchPanel = false;
+        OptSearchHex = true;
+        OptSearchText = false;
         ReadFn = nullptr;
         WriteFn = nullptr;
         HighlightFn = nullptr;
@@ -152,16 +183,37 @@ struct MemoryEditor
 
         // State/Internals
         ContentsWidthChanged = false;
-        DataPreviewAddr = DataEditingAddr = (size_t)-1;
+        DataPreviewAddr = DataEditingAddr = LastEditingAddr = (size_t)-1;
         DataEditingTakeFocus = false;
         memset(DataInputBuf, 0, sizeof(DataInputBuf));
         memset(AddrInputBuf, 0, sizeof(AddrInputBuf));
+        memset(SearchInputBuf, 0, sizeof(SearchInputBuf));
         GotoAddr = (size_t)-1;
         MouseHovered = false;
         MouseHoveredAddr = 0;
         HighlightMin = HighlightMax = (size_t)-1;
         PreviewEndianness = 0;
         PreviewDataType = ImGuiDataType_S32;
+        Selecting = false;
+        SelectionAnchor = (size_t)-1;
+        SelectionStart = SelectionEnd = (size_t)-1;
+        SelectionChanged = false;
+        SelectionColor = IM_COL32(100, 100, 255, 80);
+        SearchRequested = false;
+        SearchPattern = nullptr;
+        SearchPatternSize = 0;
+        TargetScrollY = 0.0f;
+    }
+
+    ~MemoryEditor()
+    {
+        if (SearchPattern != nullptr)
+            free(SearchPattern);
+    }
+
+    static inline float Saturate(float f)
+    {
+        return (f < 0.0f) ? 0.0f : (f > 1.0f) ? 1.0f : f;
     }
 
     void GotoAddrAndHighlight(size_t addr_min, size_t addr_max)
@@ -169,6 +221,348 @@ struct MemoryEditor
         GotoAddr = addr_min;
         HighlightMin = addr_min;
         HighlightMax = addr_max;
+    }
+
+    // Decode UTF-8 sequence at offset 'off' in 'data' of size 'size'
+    // Returns number of bytes consumed (1-4), or 0 if invalid
+    static int DecodeUTF8(const ImU8* data, size_t size, size_t off, ImU32* out_codepoint)
+    {
+        if (off >= size) return 0;
+
+        ImU8 c = data[off];
+        if (c < 0x80) // 1-byte sequence (ASCII)
+        {
+            *out_codepoint = c;
+            return 1; // Allow \r (0x0D) and \n (0x0A)
+        }
+        if ((c & 0xE0) == 0xC0 && off + 1 < size) // 2-byte sequence
+        {
+            ImU32 codepoint = (c & 0x1F) << 6;
+            if ((data[off + 1] & 0xC0) == 0x80)
+            {
+                codepoint |= (data[off + 1] & 0x3F);
+                if (codepoint >= 0x80) // Valid non-ASCII codepoint
+                {
+                    *out_codepoint = codepoint;
+                    return 2;
+                }
+            }
+        }
+        else if ((c & 0xF0) == 0xE0 && off + 2 < size) // 3-byte sequence
+        {
+            ImU32 codepoint = (c & 0x0F) << 12;
+            if ((data[off + 1] & 0xC0) == 0x80 && (data[off + 2] & 0xC0) == 0x80)
+            {
+                codepoint |= (data[off + 1] & 0x3F) << 6;
+                codepoint |= (data[off + 2] & 0x3F);
+                if (codepoint >= 0x800)
+                {
+                    *out_codepoint = codepoint;
+                    return 3;
+                }
+            }
+        }
+        else if ((c & 0xF8) == 0xF0 && off + 3 < size) // 4-byte sequence
+        {
+            ImU32 codepoint = (c & 0x07) << 18;
+            if ((data[off + 1] & 0xC0) == 0x80 && (data[off + 2] & 0xC0) == 0x80 && (data[off + 3] & 0xC0) == 0x80)
+            {
+                codepoint |= (data[off + 1] & 0x3F) << 12;
+                codepoint |= (data[off + 2] & 0x3F) << 6;
+                codepoint |= (data[off + 3] & 0x3F);
+                if (codepoint >= 0x10000 && codepoint <= 0x10FFFF)
+                {
+                    *out_codepoint = codepoint;
+                    return 4;
+                }
+            }
+        }
+        return 0; // Invalid UTF-8 sequence
+    }
+
+    // Encode a Unicode codepoint into a UTF-8 string
+    // out_buf must be at least 5 bytes (4 for UTF-8 + null terminator)
+    // Returns number of bytes written to out_buf (1-4), or 0 if invalid
+    static int EncodeUTF8(ImU32 codepoint, char* out_buf)
+    {
+        if (codepoint >= 0x110000)
+            return 0;
+        if (codepoint < 0x80)
+        {
+            out_buf[0] = (char)codepoint;
+            out_buf[1] = 0;
+            return 1;
+        }
+        if (codepoint < 0x800)
+        {
+            out_buf[0] = (char)(0xC0 | (codepoint >> 6));
+            out_buf[1] = (char)(0x80 | (codepoint & 0x3F));
+            out_buf[2] = 0;
+            return 2;
+        }
+        if (codepoint < 0x10000)
+        {
+            out_buf[0] = (char)(0xE0 | (codepoint >> 12));
+            out_buf[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+            out_buf[2] = (char)(0x80 | (codepoint & 0x3F));
+            out_buf[3] = 0;
+            return 3;
+        }
+        out_buf[0] = (char)(0xF0 | (codepoint >> 18));
+        out_buf[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+        out_buf[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        out_buf[3] = (char)(0x80 | (codepoint & 0x3F));
+        out_buf[4] = 0;
+        return 4;
+    }
+
+    int GetCodePoint(size_t addr, ImU32& codepoint)
+    {
+        ImU8* mem_data = (ImU8*)MemData;
+        ImU8 temp_buffer[4];
+        size_t max_bytes = IM_MIN(4, MemSize - addr);
+        for (size_t i = 0; i < max_bytes; ++i)
+            temp_buffer[i] = ReadFn ? ReadFn(mem_data, addr + i, UserData) : mem_data[addr + i];
+        int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+        return bytes;
+    }
+
+    void SetSelection(size_t start, size_t end)
+    {
+        if (start > end)
+        {
+            size_t temp = start - 1;
+            start = end;
+            end = temp;
+        }
+        // Adjust selection to align with UTF-8 sequence boundaries if OptShowUtf8 is enabled
+        if (OptShowUtf8 && MemData && MemSize > 0)
+        {
+            ImU8* mem_data = (ImU8*)MemData;
+            // Adjust start to the beginning of a UTF-8 sequence
+            if (start < MemSize)
+            {
+                ImU32 codepoint = 0;
+                ImU8 temp_buffer[4];
+                size_t max_bytes = IM_MIN(4, MemSize - start);
+                for (size_t i = 0; i < max_bytes; ++i)
+                    temp_buffer[i] = ReadFn ? ReadFn(mem_data, start + i, UserData) : mem_data[start + i];
+                int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                if (bytes == 0 && (temp_buffer[0] & 0xC0) == 0x80 && start > 0)
+                {
+                    size_t temp_addr = start;
+                    size_t max_steps = 4;
+                    while (temp_addr > 0 && (temp_buffer[0] & 0xC0) == 0x80 && max_steps > 0)
+                    {
+                        temp_addr--;
+                        max_steps--;
+                        max_bytes = IM_MIN(4, MemSize - temp_addr);
+                        for (size_t i = 0; i < max_bytes; ++i)
+                            temp_buffer[i] = ReadFn ? ReadFn(mem_data, temp_addr + i, UserData) : mem_data[temp_addr + i];
+                        bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                    }
+                    if (bytes > 0 && temp_addr + bytes - 1 >= start && temp_addr < MemSize)
+                        start = temp_addr;
+                }
+            }
+            // Adjust end to the end of a UTF-8 sequence
+            if (end < MemSize)
+            {
+                ImU32 codepoint = 0;
+                ImU8 temp_buffer[4];
+                size_t max_bytes = IM_MIN(4, MemSize - end);
+                for (size_t i = 0; i < max_bytes; ++i)
+                    temp_buffer[i] = ReadFn ? ReadFn(mem_data, end + i, UserData) : mem_data[end + i];
+                int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                if (bytes > 0 && end + bytes <= MemSize)
+                    end = end + bytes - 1;
+                else if (bytes == 0 && (temp_buffer[0] & 0xC0) == 0x80 && end > 0)
+                {
+                    size_t temp_addr = end;
+                    size_t max_steps = 4;
+                    while (temp_addr > 0 && (temp_buffer[0] & 0xC0) == 0x80 && max_steps > 0)
+                    {
+                        temp_addr--;
+                        max_steps--;
+                        max_bytes = IM_MIN(4, MemSize - temp_addr);
+                        for (size_t i = 0; i < max_bytes; ++i)
+                            temp_buffer[i] = ReadFn ? ReadFn(mem_data, temp_addr + i, UserData) : mem_data[temp_addr + i];
+                        bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                    }
+                    if (bytes > 0 && temp_addr + bytes - 1 >= end && temp_addr < MemSize)
+                        end = temp_addr + bytes - 1;
+                }
+            }
+        }
+        SelectionStart = start;
+        SelectionEnd = end;
+        SelectionChanged = true;
+    }
+
+    void ClearSelection()
+    {
+        SelectionStart = SelectionEnd = (size_t)-1;
+        SelectionChanged = true;
+    }
+
+    bool HasSelection() const { return SelectionStart != (size_t)-1 && SelectionEnd != (size_t)-1; }
+
+    void CopySelectionAsHex(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 3;
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end; ++i)
+        {
+            char buf[4];
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            ImSnprintf(buf, sizeof(buf), OptUpperCaseHex ? "%02X " : "%02x ", byte);
+            memcpy(*out + pos, buf, strlen(buf));
+            pos += strlen(buf);
+        }
+        if (pos > 0) (*out)[pos - 1] = '\0';
+    }
+
+    void CopySelectionAsDec(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 4;
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end; ++i)
+        {
+            char buf[5];
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            ImSnprintf(buf, sizeof(buf), "%d ", byte);
+            memcpy(*out + pos, buf, strlen(buf));
+            pos += strlen(buf);
+        }
+        if (pos > 0) (*out)[pos - 1] = '\0';
+    }
+
+    void CopySelectionAsBin(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 9;
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end; ++i)
+        {
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            for (int j = 7; j >= 0; --j)
+                (*out)[pos++] = (byte & (1 << j)) ? '1' : '0';
+            (*out)[pos++] = ' ';
+        }
+        if (pos > 0) (*out)[pos - 1] = '\0';
+    }
+
+    void CopySelectionAsAscii(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        if (OptShowUtf8)
+        {
+            // Delegate to CopySelectionAsUtf8 for UTF-8 mode
+            CopySelectionAsUtf8(out);
+            return;
+        }
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 4 + 1; // Max 4 bytes per char (conservative for ANSI)
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        size_t pos = 0;
+        for (size_t i = start; i <= end && pos < len - 1; ++i)
+        {
+            ImU8 byte = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+            (*out)[pos++] = (byte >= 32 && byte < 128) ? (char)byte : '.';
+        }
+        (*out)[pos] = '\0';
+    }
+
+    void CopySelectionAsUtf8(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 4 + 1; // Max 4 bytes per UTF-8 char
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        ImU8* temp_buffer = (ImU8*)malloc(end - start + 1);
+        if (temp_buffer == nullptr)
+        {
+            free(*out);
+            *out = nullptr;
+            return;
+        }
+        for (size_t i = start; i <= end; ++i)
+            temp_buffer[i - start] = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+
+        size_t pos = 0;
+        for (size_t i = 0; i <= end - start && pos < len - 1;)
+        {
+            ImU32 codepoint = 0;
+            int bytes = DecodeUTF8(temp_buffer, end - start + 1, i, &codepoint);
+            if (bytes > 0)
+            {
+                char utf8_buf[5];
+                int written = EncodeUTF8(codepoint, utf8_buf);
+                if (written > 0)
+                {
+                    for (int j = 0; j < written && pos < len - 1; ++j)
+                        (*out)[pos++] = utf8_buf[j];
+                    i += bytes;
+                }
+                else
+                {
+                    // Write U+FFFD (�)
+                    (*out)[pos++] = (char)0xEF;
+                    (*out)[pos++] = (char)0xBF;
+                    (*out)[pos++] = (char)0xBD;
+                    i++;
+                }
+            }
+            else
+            {
+                // Write U+FFFD (�)
+                (*out)[pos++] = (char)0xEF;
+                (*out)[pos++] = (char)0xBF;
+                (*out)[pos++] = (char)0xBD;
+                i++;
+            }
+        }
+        (*out)[pos] = '\0';
+        free(temp_buffer);
     }
 
     struct Sizes
@@ -235,6 +629,9 @@ struct MemoryEditor
     // Memory Editor contents only
     void DrawContents(void* mem_data_void, size_t mem_size, size_t base_display_addr = 0x0000)
     {
+        MemData = mem_data_void;
+        MemSize = mem_size;
+
         if (Cols < 1)
             Cols = 1;
 
@@ -253,7 +650,16 @@ struct MemoryEditor
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1;
         if (OptShowDataPreview)
             footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing() * 3;
+        if (HasSelection())
+            footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 1 + ImGui::GetTextLineHeightWithSpacing();
+        if (OptShowSearchPanel)
+            footer_height += height_separator + ImGui::GetFrameHeightWithSpacing() * 2;
+
         ImGui::BeginChild("##scrolling", ImVec2(-FLT_MIN, -footer_height), ImGuiChildFlags_None, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav);
+
+        // Store current scroll position
+        TargetScrollY = ImGui::GetScrollY();
+
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -277,11 +683,314 @@ struct MemoryEditor
         size_t data_editing_addr_next = (size_t)-1;
         if (DataEditingAddr != (size_t)-1)
         {
-            // Move cursor but only apply on next frame so scrolling with be synchronized (because currently we can't change the scrolling while the window is being rendered)
-            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && (ptrdiff_t)DataEditingAddr >= (ptrdiff_t)Cols)                 { data_editing_addr_next = DataEditingAddr - Cols; }
-            else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && (ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - Cols){ data_editing_addr_next = DataEditingAddr + Cols; }
-            else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && (ptrdiff_t)DataEditingAddr > (ptrdiff_t)0)              { data_editing_addr_next = DataEditingAddr - 1; }
-            else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && (ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - 1)  { data_editing_addr_next = DataEditingAddr + 1; }
+            const bool is_shift_down = ImGui::GetIO().KeyShift;
+            const bool is_ctrl_down = ImGui::GetIO().KeyCtrl;
+            bool scrolled = false;
+
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+            {
+                if (is_shift_down)
+                {
+                    // Initialize selection anchor if this is the first shift-press
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    // Move selection end up one line
+                    size_t new_addr = (DataEditingAddr >= (size_t)Cols) ? DataEditingAddr - Cols : 0;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    // Regular up arrow - clear selection anchor
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr >= (ptrdiff_t)Cols)
+                        data_editing_addr_next = DataEditingAddr - Cols;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+            {
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    // Move selection end up one line
+                    size_t new_addr = DataEditingAddr + Cols;
+                    if (new_addr >= mem_size) new_addr = mem_size - 1;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - Cols)
+                        data_editing_addr_next = DataEditingAddr + Cols;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+            {
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    size_t new_addr = (DataEditingAddr > 0) ? DataEditingAddr - 1 : 0;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr > 0)
+                        data_editing_addr_next = DataEditingAddr - 1;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+            {
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    size_t new_addr = DataEditingAddr + 1;
+                    if (new_addr >= mem_size) new_addr = mem_size - 1;
+                    SetSelection(SelectionAnchor, new_addr);
+                    data_editing_addr_next = new_addr;
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if ((ptrdiff_t)DataEditingAddr < (ptrdiff_t)mem_size - 1)
+                        data_editing_addr_next = DataEditingAddr + 1;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_Home))
+            {
+                size_t line_start = (DataEditingAddr / Cols) * Cols;
+
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+Shift+Home: Select to start of data
+                        SetSelection(SelectionAnchor, 0);
+                        data_editing_addr_next = 0;
+                    }
+                    else
+                    {
+                        // Shift+Home: Select to start of line
+                        SetSelection(SelectionAnchor, line_start);
+                        data_editing_addr_next = line_start;
+                    }
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+Home: Jump to start of data
+                        data_editing_addr_next = 0;
+                    }
+                    else
+                    {
+                        // Home: Jump to start of line
+                        data_editing_addr_next = line_start;
+                    }
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_End))
+            {
+                size_t line_end = ((DataEditingAddr / Cols) * Cols) + Cols - 1;
+                if (line_end >= mem_size) line_end = mem_size - 1;
+
+                if (is_shift_down)
+                {
+                    if (SelectionAnchor == (size_t)-1)
+                        SelectionAnchor = DataEditingAddr;
+
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+Shift+End: Select to end of data
+                        SetSelection(SelectionAnchor, mem_size - 1);
+                        data_editing_addr_next = mem_size - 1;
+                    }
+                    else
+                    {
+                        // Shift+End: Select to end of line
+                        SetSelection(SelectionAnchor, line_end);
+                        data_editing_addr_next = line_end;
+                    }
+                }
+                else
+                {
+                    SelectionAnchor = (size_t)-1;
+                    if (is_ctrl_down)
+                    {
+                        // Ctrl+End: Jump to end of data
+                        data_editing_addr_next = mem_size - 1;
+                    }
+                    else
+                    {
+                        // End: Jump to end of line
+                        data_editing_addr_next = line_end;
+                    }
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_PageUp))
+            {
+                int lines_per_page = (int)(ImGui::GetWindowHeight() / s.LineHeight);
+                if (lines_per_page > 0)
+                {
+                    size_t new_addr;
+                    if (DataEditingAddr < (size_t)lines_per_page * Cols)
+                    {
+                        // If less than a page from start, jump to address 0
+                        new_addr = 0;
+                        ImGui::SetScrollY(0.0f);
+                    }
+                    else
+                    {
+                        // Move up one page
+                        new_addr = DataEditingAddr - (size_t)lines_per_page * Cols;
+                        ImGui::SetScrollY(ImGui::GetScrollY() - lines_per_page * s.LineHeight);
+                    }
+
+                    if (is_shift_down)
+                    {
+                        // Shift+PageUp: move selection end up one page
+                        if (SelectionAnchor == (size_t)-1)
+                            SelectionAnchor = DataEditingAddr;
+                        SetSelection(SelectionAnchor, new_addr);
+                    }
+                    else
+                    {
+                        SelectionAnchor = (size_t)-1;
+                    }
+                    data_editing_addr_next = new_addr;
+                    scrolled = true;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_PageDown))
+            {
+                int lines_per_page = (int)(ImGui::GetWindowHeight() / s.LineHeight);
+                if (lines_per_page > 0)
+                {
+                    // Move up one down
+                    size_t new_addr = IM_MIN(mem_size - 1, DataEditingAddr + (size_t)lines_per_page * Cols);
+                    ImGui::SetScrollY(ImGui::GetScrollY() + lines_per_page * s.LineHeight);
+
+                    if (is_shift_down)
+                    {
+                        // Shift+PageDown: move selection end down one page
+                        if (SelectionAnchor == (size_t)-1)
+                            SelectionAnchor = DataEditingAddr;
+                        SetSelection(SelectionAnchor, new_addr);
+                    }
+                    else
+                    {
+                        SelectionAnchor = (size_t)-1;
+                    }
+                    data_editing_addr_next = new_addr;
+                    scrolled = true;
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_A) && is_ctrl_down)
+            {
+                // Ctrl+A: Select all
+                if (mem_size > 0)
+                {
+                    SelectionAnchor = 0;
+                    SetSelection(0, mem_size - 1);
+                }
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_F) && is_ctrl_down)
+            {
+                // Ctrl+F: Show search panel
+                OptShowSearchPanel = true;
+                // Copy selected text to search input if there is a selection
+                if (HasSelection())
+                {
+                    char* selection_data = nullptr;
+                    if (OptSearchHex)
+                    {
+                        CopySelectionAsHex(&selection_data);
+                    }
+                    else if (OptSearchText)
+                    {
+                        CopySelectionAsUtf8(&selection_data);
+                    }
+                    else // Decimal
+                    {
+                        CopySelectionAsDec(&selection_data);
+                    }
+                    if (selection_data != nullptr)
+                    {
+                        // Clear SearchInputBuf and copy the selection
+                        memset(SearchInputBuf, 0, sizeof(SearchInputBuf));
+
+                        // Determine the maximum length to copy (reserve space for null terminator)
+                        size_t max_len = sizeof(SearchInputBuf) - 1;
+
+                        // For UTF-8, ensure truncation happens at a valid character boundary
+                        if (OptSearchText)
+                        {
+                            size_t valid_len = 0;
+                            size_t pos = 0;
+                            while (pos < strlen(selection_data) && valid_len < max_len)
+                            {
+                                ImU32 codepoint = 0;
+                                int bytes = DecodeUTF8((const ImU8*)selection_data, strlen(selection_data), pos, &codepoint);
+                                if (bytes == 0 || valid_len + bytes > max_len)
+                                    break; // Stop if invalid or would exceed buffer
+                                valid_len += bytes;
+                                pos += bytes;
+                            }
+                            // Copy only the valid UTF-8 portion
+                            ImSnprintf(SearchInputBuf, valid_len + 1, "%s", selection_data);
+                        }
+                        else if (!OptSearchHex && !OptSearchText) // Decimal
+                        {
+                            // For Decimal, truncate at the last space before max_len
+                            size_t copy_len = max_len;
+                            for (size_t i = max_len; i > 0; i--)
+                            {
+                                if (selection_data[i] == ' ')
+                                {
+                                    copy_len = i; // Truncate at the last space
+                                    break;
+                                }
+                            }
+                            ImSnprintf(SearchInputBuf, copy_len + 1, "%s", selection_data);
+                        }
+                        else // Hex
+                        {
+                            // For Hex, copy up to buffer size minus null terminator
+                            ImSnprintf(SearchInputBuf, sizeof(SearchInputBuf) - 1, "%s", selection_data);
+                        }
+                        free(selection_data);
+                    }
+                }
+            }
+            if (data_editing_addr_next != (size_t)-1 && !scrolled)
+            {
+                // Calculate target line and scroll position
+                int target_line = (int)(data_editing_addr_next / Cols);
+                float target_scroll = target_line * s.LineHeight;
+
+                // Smooth scroll to target position
+                if (target_scroll < TargetScrollY)
+                {
+                    ImGui::SetScrollY(target_scroll);
+                }
+                else if (target_scroll > TargetScrollY + ImGui::GetWindowHeight() - s.LineHeight * 2)
+                {
+                    ImGui::SetScrollY(target_scroll - ImGui::GetWindowHeight() + s.LineHeight * 2);
+                }
+            }
         }
 
         // Draw vertical separator
@@ -293,7 +1002,6 @@ struct MemoryEditor
         const ImU32 color_disabled = OptGreyOutZeroes ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : color_text;
 
         const char* format_address = OptUpperCaseHex ? "%0*" _PRISizeT "X: " : "%0*" _PRISizeT "x: ";
-        const char* format_data = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
         const char* format_byte = OptUpperCaseHex ? "%02X" : "%02x";
         const char* format_byte_space = OptUpperCaseHex ? "%02X " : "%02x ";
 
@@ -314,17 +1022,62 @@ struct MemoryEditor
                         byte_pos_x += (float)(n / OptMidColsCount) * s.SpacingBetweenMidCols;
                     ImGui::SameLine(byte_pos_x);
 
+                    // Check if mouse is hovering this byte
+                    bool is_byte_hovered = false;
+                    const ImVec2 pos = ImGui::GetCursorScreenPos();
+                    if (ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + s.HexCellWidth, pos.y + s.LineHeight)))
+                    {
+                        is_byte_hovered = true;
+                        MouseHovered = true;
+                        MouseHoveredAddr = addr;
+                    }
+
+                    // Handle selection
+                    if (is_byte_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup))
+                    {
+                        if (ImGui::GetIO().KeyShift && HasSelection() && SelectionAnchor != (size_t)-1)
+                        {
+                            // Extend existing selection using SelectionAnchor
+                            if (SelectionAnchor != (size_t)-1)
+                            {
+                                SetSelection(SelectionAnchor, addr);
+                                Selecting = false;
+                            }
+                        }
+                        else
+                        {
+                            // Start new selection without Shift
+                            SelectionAnchor = addr;
+                            SetSelection(addr, addr);
+                            Selecting = true;
+                        }
+                    }
+
+                    // Mouse drag handling
+                    if (is_byte_hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                    {
+                        SetSelection(SelectionAnchor, addr);
+                        Selecting = true;
+                    }
+                    else if (Selecting && is_byte_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                    {
+                        DataEditingAddr = DataPreviewAddr = addr;
+                        DataEditingTakeFocus = true;
+                        Selecting = false;
+                    }
+
                     // Draw highlight or custom background color
                     const bool is_highlight_from_user_range = (addr >= HighlightMin && addr < HighlightMax);
                     const bool is_highlight_from_user_func = (HighlightFn && HighlightFn(mem_data, addr, UserData));
                     const bool is_highlight_from_preview = (addr >= DataPreviewAddr && addr < DataPreviewAddr + preview_data_type_size);
+                    const bool is_selected = HasSelection() && addr >= SelectionStart && addr <= SelectionEnd;
 
                     ImU32 bg_color = 0;
                     bool is_next_byte_highlighted = false;
-                    if (is_highlight_from_user_range || is_highlight_from_user_func || is_highlight_from_preview)
+                    if (is_highlight_from_user_range || is_highlight_from_user_func || is_highlight_from_preview || is_selected)
                     {
-                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1, UserData)) || (addr + 1 < DataPreviewAddr + preview_data_type_size));
-                        bg_color = HighlightColor;
+                        is_next_byte_highlighted = (addr + 1 < mem_size) && ((HighlightMax != (size_t)-1 && addr + 1 < HighlightMax) || (HighlightFn && HighlightFn(mem_data, addr + 1, UserData)) || (addr + 1 < DataPreviewAddr + preview_data_type_size) || (is_selected && addr + 1 <= SelectionEnd));
+                        bg_color = is_selected ? SelectionColor : HighlightColor;
                     }
                     else if (BgColorFn != nullptr)
                     {
@@ -340,7 +1093,6 @@ struct MemoryEditor
                             if (OptMidColsCount > 0 && n > 0 && (n + 1) < Cols && ((n + 1) % OptMidColsCount) == 0)
                                 bg_width += s.SpacingBetweenMidCols;
                         }
-                        ImVec2 pos = ImGui::GetCursorScreenPos();
                         draw_list->AddRectFilled(pos, ImVec2(pos.x + bg_width, pos.y + s.LineHeight), bg_color);
                     }
 
@@ -352,7 +1104,6 @@ struct MemoryEditor
                         if (DataEditingTakeFocus)
                         {
                             ImGui::SetKeyboardFocusHere(0);
-                            ImSnprintf(AddrInputBuf, 32, format_data, s.AddrDigitsCount, base_display_addr + addr);
                             ImSnprintf(DataInputBuf, 32, format_byte, ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr]);
                         }
                         struct InputTextUserData
@@ -457,40 +1208,260 @@ struct MemoryEditor
                     ImVec2 pos = ImGui::GetCursorScreenPos();
                     addr = (size_t)line_i * Cols;
 
+                    // Render continuous selection background
+                    if (HasSelection())
+                    {
+                        size_t sel_start = IM_MAX(SelectionStart, (size_t)line_i * Cols);
+                        size_t sel_end = IM_MIN(SelectionEnd, IM_MIN((size_t)line_i * Cols + Cols - 1, mem_size - 1));
+                        if (sel_start <= sel_end && sel_end >= addr)
+                        {
+                            float sel_start_x = pos.x;
+                            float sel_end_x = pos.x;
+                            size_t temp_addr = addr;
+                            float current_x = 0.0f;
+                            // Calculate position of sel_start
+                            while (temp_addr < sel_start && temp_addr < mem_size)
+                            {
+                                float char_width = s.GlyphWidth;
+                                int bytes = 1;
+                                if (OptShowUtf8)
+                                {
+                                    ImU32 codepoint = 0;
+                                    bytes = GetCodePoint(temp_addr, codepoint);
+                                    ImFont* font = ImGui::GetFont();
+                                    ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                                    char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                                    if (!bytes)
+                                        bytes = 1;
+                                }
+                                current_x += char_width;
+                                temp_addr += bytes;
+                            }
+                            sel_start_x = pos.x + current_x;
+                            while (temp_addr <= sel_end && temp_addr < mem_size)
+                            {
+                                float char_width = s.GlyphWidth;
+                                int bytes = 1;
+                                if (OptShowUtf8)
+                                {
+                                    ImU32 codepoint = 0;
+                                    bytes = GetCodePoint(temp_addr, codepoint);
+                                    ImFont* font = ImGui::GetFont();
+                                    ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                                    char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                                    if (!bytes)
+                                        bytes = 1;
+                                }
+                                sel_end_x = pos.x + current_x + char_width;
+                                current_x += char_width;
+                                temp_addr += bytes;
+                            }
+                            if (sel_start_x < sel_end_x)
+                                draw_list->AddRectFilled(ImVec2(sel_start_x, pos.y), ImVec2(sel_end_x, pos.y + s.LineHeight), SelectionColor);
+                        }
+                    }
+
+                    // Handle mouse interaction
                     const float mouse_off_x = ImGui::GetIO().MousePos.x - pos.x;
-                    const size_t mouse_addr = (mouse_off_x >= 0.0f && mouse_off_x < s.OffsetAsciiMaxX - s.OffsetAsciiMinX) ? addr + (size_t)(mouse_off_x / s.GlyphWidth) : (size_t)-1;
+                    size_t mouse_addr = (size_t)-1;
+                    if (mouse_off_x >= 0.0f && mouse_off_x < s.OffsetAsciiMaxX - s.OffsetAsciiMinX)
+                    {
+                        size_t line_end = IM_MIN((size_t)line_i * Cols + Cols - 1, mem_size - 1);
+                        size_t temp_addr = (size_t)line_i * Cols;
+                        float current_x = 0.0f;
+                        size_t last_valid_addr = temp_addr;
+                        float last_valid_x = current_x;
+                        while (temp_addr <= line_end && temp_addr < mem_size)
+                        {
+                            float char_width = s.GlyphWidth;
+                            int bytes = 1;
+                            if (OptShowUtf8)
+                            {
+                                ImU32 codepoint = 0;
+                                bytes = GetCodePoint(temp_addr, codepoint);
+                                ImFont* font = ImGui::GetFont();
+                                ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                                char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                                if (!bytes)
+                                    bytes = 1;
+                            }
+                            if (current_x <= mouse_off_x && mouse_off_x < current_x + char_width)
+                            {
+                                mouse_addr = temp_addr;
+                                break;
+                            }
+                            last_valid_addr = temp_addr;
+                            last_valid_x = current_x;
+                            current_x += char_width;
+                            temp_addr += bytes;
+                        }
+                        if (mouse_addr == (size_t)-1 && last_valid_addr <= line_end && mouse_off_x >= last_valid_x)
+                            mouse_addr = last_valid_addr;
+                        if (mouse_addr != (size_t)-1 && OptShowUtf8 && mouse_addr < mem_size)
+                        {
+                            ImU32 codepoint = 0;
+                            ImU8 temp_buffer[4];
+                            size_t max_bytes = IM_MIN(4, mem_size - mouse_addr);
+                            for (size_t i = 0; i < max_bytes; ++i)
+                                temp_buffer[i] = ReadFn ? ReadFn(mem_data, mouse_addr + i, UserData) : mem_data[mouse_addr + i];
+                            int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                            if (bytes == 0 && (temp_buffer[0] & 0xC0) == 0x80 && mouse_addr > 0)
+                            {
+                                size_t temp_addr = mouse_addr;
+                                size_t max_steps = 4;
+                                while (temp_addr > 0 && (temp_buffer[0] & 0xC0) == 0x80 && max_steps > 0)
+                                {
+                                    temp_addr--;
+                                    max_steps--;
+                                    max_bytes = IM_MIN(4, mem_size - temp_addr);
+                                    for (size_t i = 0; i < max_bytes; ++i)
+                                        temp_buffer[i] = ReadFn ? ReadFn(mem_data, temp_addr + i, UserData) : mem_data[temp_addr + i];
+                                    bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                                }
+                                if (bytes > 0 && temp_addr + bytes - 1 >= mouse_addr && temp_addr < mem_size)
+                                    mouse_addr = temp_addr;
+                            }
+                        }
+                    }
 
                     ImGui::PushID(line_i);
-                    if (ImGui::InvisibleButton("ascii", ImVec2(s.OffsetAsciiMaxX - s.OffsetAsciiMinX, s.LineHeight)))
-                    {
-                        DataEditingAddr = DataPreviewAddr = mouse_addr;
-                        DataEditingTakeFocus = true;
-                    }
+                    ImGui::InvisibleButton("ascii", ImVec2(s.OffsetAsciiMaxX - s.OffsetAsciiMinX, s.LineHeight));
                     if (ImGui::IsItemHovered())
                     {
                         MouseHovered = true;
                         MouseHoveredAddr = mouse_addr;
+                        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup))
+                        {
+                            if (ImGui::GetIO().KeyShift && HasSelection() && SelectionAnchor != (size_t)-1)
+                            {
+                                SetSelection(SelectionAnchor, mouse_addr);
+                                Selecting = false;
+                            }
+                            else
+                            {
+                                SelectionAnchor = mouse_addr;
+                                SetSelection(mouse_addr, mouse_addr);
+                                Selecting = true;
+                            }
+                            DataEditingAddr = DataPreviewAddr = mouse_addr;
+                            DataEditingTakeFocus = true;
+                        }
                     }
                     ImGui::PopID();
-                    for (int n = 0; n < Cols && addr < mem_size; n++, addr++)
+                    int n = 0;
+                    while (n < Cols && addr < mem_size)
                     {
+                        float char_width = s.GlyphWidth;
+                        ImU32 codepoint = 0;
+                        int bytes = 1;
+                        if (OptShowUtf8)
+                        {
+                            bytes = GetCodePoint(addr, codepoint);
+                            ImFont* font = ImGui::GetFont();
+                            ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                            char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                            if (!bytes)
+                                bytes = 1;
+                        }
+                        bool is_byte_hovered = ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight));
+                        if (is_byte_hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                        {
+                            SetSelection(SelectionAnchor, mouse_addr);
+                            Selecting = true;
+                        }
+                        else if (Selecting && is_byte_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                        {
+                            DataEditingAddr = DataPreviewAddr = mouse_addr;
+                            DataEditingTakeFocus = true;
+                            Selecting = false;
+                        }
                         if (addr == DataEditingAddr)
                         {
-                            draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_FrameBg));
-                            draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_TextSelectedBg));
+                            draw_list->AddRectFilled(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_FrameBg));
+                            draw_list->AddRectFilled(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight), ImGui::GetColorU32(ImGuiCol_TextSelectedBg));
                         }
-                        else if (BgColorFn)
+                        else if (BgColorFn && (!HasSelection() || addr < SelectionStart || addr > SelectionEnd))
                         {
-                            draw_list->AddRectFilled(pos, ImVec2(pos.x + s.GlyphWidth, pos.y + s.LineHeight), BgColorFn(mem_data, addr, UserData));
+                            draw_list->AddRectFilled(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight), BgColorFn(mem_data, addr, UserData));
                         }
-                        unsigned char c = ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr];
-                        char display_c = (c < 32 || c >= 128) ? '.' : c;
-                        draw_list->AddText(pos, (display_c == c) ? color_text : color_disabled, &display_c, &display_c + 1);
-                        pos.x += s.GlyphWidth;
+                        if (OptShowUtf8)
+                        {
+                            if (bytes > 0 && codepoint >= 32)
+                            {
+                                char utf8_buf[5];
+                                int written = EncodeUTF8(codepoint, utf8_buf);
+                                if (written > 0)
+                                {
+                                    draw_list->AddText(pos, color_text, utf8_buf, utf8_buf + written);
+                                    pos.x += char_width;
+                                }
+                                else
+                                {
+                                    char dot_buf[] = { '.', 0 };
+                                    draw_list->AddText(pos, color_disabled, dot_buf, dot_buf + 1);
+                                    pos.x += char_width;
+                                }
+                                addr += bytes;
+                                n += bytes;
+                            }
+                            else
+                            {
+                                char dot_buf[] = { '.', 0 };
+                                draw_list->AddText(pos, color_disabled, dot_buf, dot_buf + 1);
+                                pos.x += char_width;
+                                addr++;
+                                n++;
+                            }
+                        }
+                        else
+                        {
+                            // ANSI mode
+                            unsigned char c = ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr];
+                            char display_c = (c < 32 || c >= 128) ? '.' : c;
+                            draw_list->AddText(pos, (display_c == c) ? color_text : color_disabled, &display_c, &display_c + 1);
+                            pos.x += char_width;
+                            addr++;
+                            n++;
+                        }
                     }
                 }
             }
         ImGui::PopStyleVar(2);
+
+        // Handle scrolling when dragging outside the visible bytes
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Left) && SelectionAnchor != (size_t)-1 && Selecting)
+        {
+            ImVec2 mouse_pos_screen = ImGui::GetMousePos();
+            ImVec2 child_screen_pos = ImGui::GetWindowPos();
+            ImVec2 mouse_pos_relative_to_child = ImVec2(mouse_pos_screen.x - child_screen_pos.x, mouse_pos_screen.y - child_screen_pos.y);
+
+            float scroll_speed = 0.0f;
+            float window_height = ImGui::GetWindowHeight();
+            float fast_scroll_threshold = 70.0f;
+            float base_speed_factor = 0.01f;
+            float max_speed_factor = 0.5f;
+
+            // Checking the upper bound of the visible area
+            if (mouse_pos_relative_to_child.y < 0.0f)
+            {
+                float distance = 0.0f - mouse_pos_relative_to_child.y;
+                float delta = Saturate(distance / fast_scroll_threshold);
+                scroll_speed = -s.LineHeight * (base_speed_factor + delta * max_speed_factor);
+            }
+            // Checking the lower bound of the visible area
+            else if (mouse_pos_relative_to_child.y > window_height)
+            {
+                float distance = mouse_pos_relative_to_child.y - window_height;
+                float delta = Saturate(distance / fast_scroll_threshold);
+                scroll_speed = s.LineHeight * (base_speed_factor + delta * max_speed_factor);
+            }
+
+            if (scroll_speed != 0.0f)
+            {
+                ImGui::SetScrollY(ImGui::GetScrollY() + scroll_speed);
+            }
+        }
+
         const float child_width = ImGui::GetWindowSize().x;
         ImGui::EndChild();
 
@@ -508,6 +1479,7 @@ struct MemoryEditor
         else if (data_editing_addr_next != (size_t)-1)
         {
             DataEditingAddr = DataPreviewAddr = data_editing_addr_next;
+            LastEditingAddr = DataEditingAddr;
             DataEditingTakeFocus = true;
         }
 
@@ -535,6 +1507,21 @@ struct MemoryEditor
                 DataEditingTakeFocus = true;
             }
             GotoAddr = (size_t)-1;
+            LastEditingAddr = GotoAddr; // Update LastEditingAddr
+        }
+
+        // Draw selection panel
+        if (HasSelection())
+        {
+            ImGui::Separator();
+            DrawSelectionLine(s, mem_data, mem_size, base_display_addr);
+        }
+
+        // Draw search panel
+        if (OptShowSearchPanel)
+        {
+            ImGui::Separator();
+            DrawSearchLine(s, mem_data, mem_size, base_display_addr);
         }
 
         const ImVec2 contents_pos_end(contents_pos_start.x + child_width, ImGui::GetCursorScreenPos().y);
@@ -544,15 +1531,83 @@ struct MemoryEditor
                 if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
                     ImGui::OpenPopup("OptionsPopup");
 
+        // Copy selection to clipboard as hex when Ctrl+C is pressed, but only if no text input is active
+        if (HasSelection() && ImGui::IsKeyPressed(ImGuiKey_C) && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput)
+        {
+            char* hex = nullptr;
+            CopySelectionAsHex(&hex);
+            if (hex != nullptr)
+            {
+                ImGui::SetClipboardText(hex);
+                free(hex);
+            }
+        }
+
         if (ImGui::BeginPopup("OptionsPopup"))
         {
+            if (HasSelection())
+            {
+                if (ImGui::MenuItem("Copy as Hex", "Ctrl+C"))
+                {
+                    char* hex = nullptr;
+                    CopySelectionAsHex(&hex);
+                    if (hex != nullptr)
+                    {
+                        ImGui::SetClipboardText(hex);
+                        free(hex);
+                    }
+                }
+                if (ImGui::MenuItem("Copy as Dec"))
+                {
+                    char* dec = nullptr;
+                    CopySelectionAsDec(&dec);
+                    if (dec != nullptr)
+                    {
+                        ImGui::SetClipboardText(dec);
+                        free(dec);
+                    }
+                }
+                if (ImGui::MenuItem("Copy as Bin"))
+                {
+                    char* bin = nullptr;
+                    CopySelectionAsBin(&bin);
+                    if (bin != nullptr)
+                    {
+                        ImGui::SetClipboardText(bin);
+                        free(bin);
+                    }
+                }
+                if (ImGui::MenuItem("Copy as ASCII"))
+                {
+                    char* ascii = nullptr;
+                    CopySelectionAsAscii(&ascii);
+                    if (ascii != nullptr)
+                    {
+                        ImGui::SetClipboardText(ascii);
+                        free(ascii);
+                    }
+                }
+                if (ImGui::MenuItem("Copy as UTF-8"))
+                {
+                    char* utf8 = nullptr;
+                    CopySelectionAsUtf8(&utf8);
+                    if (utf8 != nullptr)
+                    {
+                        ImGui::SetClipboardText(utf8);
+                        free(utf8);
+                    }
+                }
+                ImGui::Separator();
+            }
             ImGui::SetNextItemWidth(s.GlyphWidth * 7 + style.FramePadding.x * 2.0f);
             if (ImGui::DragInt("##cols", &Cols, 0.2f, 4, 32, "%d cols")) { ContentsWidthChanged = true; if (Cols < 1) Cols = 1; }
             ImGui::Checkbox("Show Data Preview", &OptShowDataPreview);
             ImGui::Checkbox("Show HexII", &OptShowHexII);
             if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
+            ImGui::Checkbox("Show UTF-8", &OptShowUtf8);
             ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
             ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
+            ImGui::Checkbox("Show Search Panel", &OptShowSearchPanel);
 
             ImGui::EndPopup();
         }
@@ -562,23 +1617,98 @@ struct MemoryEditor
     {
         IM_UNUSED(mem_data);
         ImGuiStyle& style = ImGui::GetStyle();
-        const char* format_range = OptUpperCaseHex ? "Range %0*" _PRISizeT "X..%0*" _PRISizeT "X" : "Range %0*" _PRISizeT "x..%0*" _PRISizeT "x";
 
         // Options menu
         if (ImGui::Button("Options"))
             ImGui::OpenPopup("OptionsPopup");
 
         ImGui::SameLine();
-        ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
+
+        // Draw address input mode selection
+        ImGui::PushID("addr_input_mode");
+        bool format_changed = false;
+        if (ImGui::RadioButton("Hex", OptAddrInputHex))
+        {
+            OptAddrInputHex = true;
+            format_changed = true;
+        }
         ImGui::SameLine();
+        if (ImGui::RadioButton("Dec", !OptAddrInputHex))
+        {
+            OptAddrInputHex = false;
+            format_changed = true;
+        }
+        ImGui::PopID();
+        ImGui::SameLine();
+
+        // Define formats for address: with width for display, without for parsing
+        const char* addr_format = OptAddrInputHex ? (OptUpperCaseHex ? "%" _PRISizeT "X" : "%" _PRISizeT "x") : "%" _PRISizeT "u";
+        const char* addr_format_with_width = OptAddrInputHex ? (OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x") : "%" _PRISizeT "u";
+
+        // Build range format for displaying address range
+        char format_range[32];
+        ImSnprintf(format_range, IM_ARRAYSIZE(format_range), "| Range %s..%s | Go to:", addr_format_with_width, addr_format_with_width);
+
+        // Display address range
+        if (OptAddrInputHex)
+        {
+            ImGui::Text(format_range, s.AddrDigitsCount, base_display_addr, s.AddrDigitsCount, base_display_addr + mem_size - 1);
+        }
+        else
+        {
+            ImGui::Text(format_range, base_display_addr, base_display_addr + mem_size - 1);
+        }
+        ImGui::SameLine();
+
+        // Update AddrInputBuf when format or DataEditingAddr changes
+        if (format_changed || DataEditingAddr != (size_t)-1)
+        {
+            size_t addr_to_display = (size_t)-1;
+            if (DataEditingAddr != (size_t)-1)
+            {
+                // Use DataEditingAddr and update LastEditingAddr
+                LastEditingAddr = DataEditingAddr;
+                addr_to_display = DataEditingAddr;
+            }
+            else if (LastEditingAddr != (size_t)-1)
+            {
+                // Use LastEditingAddr if no active editing
+                addr_to_display = LastEditingAddr;
+            }
+
+            if (addr_to_display != (size_t)-1)
+            {
+                if (OptAddrInputHex)
+                {
+                    ImSnprintf(AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), addr_format_with_width,
+                                s.AddrDigitsCount, base_display_addr + addr_to_display);
+                }
+                else
+                {
+                    ImSnprintf(AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), addr_format_with_width,
+                                base_display_addr + addr_to_display);
+                }
+            }
+            else
+            {
+                // Clear input if no valid address
+                AddrInputBuf[0] = '\0';
+            }
+        }
+
+        // Draw address input field
         ImGui::SetNextItemWidth((s.AddrDigitsCount + 1) * s.GlyphWidth + style.FramePadding.x * 2.0f);
-        if (ImGui::InputText("##addr", AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue))
+        ImGuiInputTextFlags flags = OptAddrInputHex ? ImGuiInputTextFlags_CharsHexadecimal : ImGuiInputTextFlags_CharsDecimal;
+        flags |= ImGuiInputTextFlags_EnterReturnsTrue;
+
+        if (ImGui::InputText("##addr", AddrInputBuf, IM_ARRAYSIZE(AddrInputBuf), flags))
         {
             size_t goto_addr;
-            if (sscanf(AddrInputBuf, "%" _PRISizeT "X", &goto_addr) == 1)
+            if (sscanf(AddrInputBuf, addr_format, &goto_addr) == 1)
             {
                 GotoAddr = goto_addr - base_display_addr;
                 HighlightMin = HighlightMax = (size_t)-1;
+                LastEditingAddr = GotoAddr; // Update LastEditingAddr
             }
         }
 
@@ -587,6 +1717,466 @@ struct MemoryEditor
         //    ImGui::SameLine();
         //    ImGui::Text("Hovered: %p", MouseHoveredAddr);
         //}
+    }
+
+    void DrawSelectionLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
+    {
+        IM_UNUSED(mem_data_void);
+        IM_UNUSED(mem_size);
+
+        const char* format_hex = OptUpperCaseHex ? "%0*" _PRISizeT "X" : "%0*" _PRISizeT "x";
+        const char* format_dec = "%" _PRISizeT "u";
+
+        char start_buf[64];
+        char end_buf[64];
+        char range[132];
+
+        if (OptAddrInputHex)
+        {
+            ImSnprintf(start_buf, sizeof(start_buf), format_hex, s.AddrDigitsCount, base_display_addr + SelectionStart);
+            ImSnprintf(end_buf, sizeof(end_buf), format_hex, s.AddrDigitsCount, base_display_addr + SelectionEnd);
+        }
+        else
+        {
+            ImSnprintf(start_buf, sizeof(start_buf), format_dec, base_display_addr + SelectionStart);
+            ImSnprintf(end_buf, sizeof(end_buf), format_dec, base_display_addr + SelectionEnd);
+        }
+
+        ImSnprintf(range, sizeof(range), "%s..%s", start_buf, end_buf);
+
+        ImGui::Text("Selection: %s (%" PRIdPTR " bytes)", range,
+                    (ptrdiff_t)(SelectionEnd - SelectionStart) >= 0 ?
+                    (ptrdiff_t)(SelectionEnd - SelectionStart) + 1 :
+                    -((ptrdiff_t)(SelectionEnd - SelectionStart)) + 1);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy range"))
+            ImGui::SetClipboardText(range);
+
+        if (ImGui::Button("Copy Hex"))
+        {
+            char* hex = nullptr;
+            CopySelectionAsHex(&hex);
+            if (hex != nullptr)
+            {
+                ImGui::SetClipboardText(hex);
+                free(hex);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy Dec"))
+        {
+            char* dec = nullptr;
+            CopySelectionAsDec(&dec);
+            if (dec != nullptr)
+            {
+                ImGui::SetClipboardText(dec);
+                free(dec);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy Bin"))
+        {
+            char* bin = nullptr;
+            CopySelectionAsBin(&bin);
+            if (bin != nullptr)
+            {
+                ImGui::SetClipboardText(bin);
+                free(bin);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy ASCII"))
+        {
+            char* ascii = nullptr;
+            CopySelectionAsAscii(&ascii);
+            if (ascii != nullptr)
+            {
+                ImGui::SetClipboardText(ascii);
+                free(ascii);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy UTF-8"))
+        {
+            char* utf8 = nullptr;
+            CopySelectionAsUtf8(&utf8);
+            if (utf8 != nullptr)
+            {
+                ImGui::SetClipboardText(utf8);
+                free(utf8);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear"))
+        {
+            ClearSelection();
+        }
+    }
+
+    // Check if the current position is a non-breaking space (UTF-8: C2 A0)
+    static bool is_nbsp(const char* p) { return (unsigned char)(p[0]) == 0xC2 && (unsigned char)(p[1]) == 0xA0; }
+
+    // Skip regular spaces and non-breaking spaces (nbsp) in the string
+    static const char* SkipWhitespace(const char* p)
+    {
+        while (*p)
+        {
+            if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+                p += 1;
+            else if (is_nbsp(p)) p += 2;
+            else break;
+        }
+        return p;
+    }
+
+    bool CheckPatternMatch(size_t addr, ImU8* mem_data, size_t mem_size, const ImU8* pattern, size_t pattern_size) const
+    {
+        if (addr + pattern_size > mem_size)
+            return false; // Prevent out-of-bounds access
+
+        // Byte-by-byte matching for Hex, Dec, or case-sensitive UTF-8
+        size_t mem_pos = addr;
+        size_t pat_pos = 0;
+        while (pat_pos < pattern_size && mem_pos < mem_size)
+        {
+            if (pattern[pat_pos] == 0x0A) // Handle \n in pattern
+            {
+                ImU8 mem_byte = ReadFn ? ReadFn(mem_data, mem_pos, UserData) : mem_data[mem_pos];
+                // Check for LF (0x0A) or CRLF (0x0D 0x0A)
+                if (mem_pos < mem_size && mem_byte == 0x0A)
+                {
+                    mem_pos += 1;
+                    pat_pos += 1;
+                    continue;
+                }
+                else if (mem_pos + 1 < mem_size)
+                {
+                    ImU8 mem_byte_next = ReadFn ? ReadFn(mem_data, mem_pos + 1, UserData) : mem_data[mem_pos + 1];
+                    if (mem_byte == 0x0D && mem_byte_next == 0x0A)
+                    {
+                        mem_pos += 2;
+                        pat_pos += 1;
+                        continue;
+                    }
+                }
+                return false;
+            }
+            ImU8 mem_byte = ReadFn ? ReadFn(mem_data, mem_pos, UserData) : mem_data[mem_pos];
+            if (mem_byte != pattern[pat_pos])
+                return false;
+            mem_pos += 1;
+            pat_pos += 1;
+        }
+        return pat_pos == pattern_size && mem_pos <= mem_size;
+    }
+
+    void DrawSearchLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
+    {
+        IM_UNUSED(s);
+        IM_UNUSED(base_display_addr);
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImU8* mem_data = (ImU8*)mem_data_void;
+
+        static bool use_data_preview_format = false;
+        static bool search_backwards = false;
+        static bool search_wrapped = false;
+        static bool search_continuing = false; // Track if search is continuing
+        static bool validation_failed = false; // Unified flag for validation errors
+        static bool is_hex_error = false; // Track if error is hex-specific
+        static bool is_text_error = false; // Track if error is text-specific
+        static size_t current_search_pos = 0;
+        static size_t match_count = 0; // Store total number of pattern matches
+        static ImVector<size_t> match_positions; // Store positions of matches
+
+        // Update current_search_pos and reset state if cursor moves
+        if (DataEditingAddr != (size_t)-1 && current_search_pos != DataEditingAddr)
+        {
+            current_search_pos = DataEditingAddr;
+            search_wrapped = search_continuing = false;
+            match_count = 0; // Reset match count when cursor moves
+            match_positions.clear();
+        }
+
+        // First line: search type and buttons
+        ImGui::Text("Search:");
+        ImGui::SameLine();
+        ImGui::PushID("search_mode");
+        if (ImGui::RadioButton("Hex", OptSearchHex))
+        {
+            OptSearchHex = true;
+            OptSearchText = search_continuing = search_wrapped = validation_failed = false;
+            match_count = 0;
+            match_positions.clear();
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("UTF-8", OptSearchText))
+        {
+            OptSearchText = true;
+            OptSearchHex = search_continuing = search_wrapped = validation_failed = false;
+            match_count = 0;
+            match_positions.clear();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Case sensitive");
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Dec", !OptSearchHex && !OptSearchText))
+        {
+            OptSearchHex = OptSearchText = search_continuing = search_wrapped = validation_failed = false;
+            match_count = 0;
+            match_positions.clear();
+        }
+        ImGui::PopID();
+
+        // Show format option for decimal mode
+        if (!OptSearchHex && !OptSearchText && OptShowDataPreview)
+        {
+            ImGui::SameLine();
+            ImGui::Checkbox("Use preview format", &use_data_preview_format);
+        }
+
+        // Search direction buttons
+        ImGui::SameLine();
+        if (ImGui::Button("Find Prev")) { SearchRequested = search_backwards = true; }
+        ImGui::SameLine();
+        if (ImGui::Button("Find Next")) { SearchRequested = true; search_backwards = false; }
+
+        // Close button
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("X").x);
+        if (ImGui::Button("X")) OptShowSearchPanel = false;
+
+        // Second line: search input and indicators
+        // Calculate available width for search input
+        float input_width = ImGui::GetContentRegionAvail().x -
+                            (validation_failed ? ImGui::CalcTextSize("Invalid decimal format.").x :
+                            (ImGui::CalcTextSize("(0 matches)").x + ImGui::CalcTextSize("(wrapped)").x)) -
+                            style.ItemSpacing.x * (validation_failed ? 1 : 2);
+
+        // Search input field
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue;
+        if (OptSearchText)
+        {
+            ImGui::InputTextMultiline("##search", SearchInputBuf, IM_ARRAYSIZE(SearchInputBuf),
+                                        ImVec2(input_width, ImGui::GetTextLineHeightWithSpacing() + 2), flags);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Multiline text can be entered. Max length of pattern: %d bytes (not symbols).",
+                                    IM_ARRAYSIZE(SearchInputBuf) - 1);
+        }
+        else
+        {
+            ImGui::SetNextItemWidth(input_width);
+            ImGui::InputText("##search", SearchInputBuf, IM_ARRAYSIZE(SearchInputBuf), flags);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Max length of pattern: %d bytes (not symbols).", IM_ARRAYSIZE(SearchInputBuf) - 1);
+        }
+
+        // Display validation error or match count and wrap indicator
+        ImGui::SameLine();
+        if (validation_failed)
+        {
+            const char* err = is_hex_error ? "Invalid hex format." :
+                              is_text_error ? "Invalid UTF-8 text." : "Invalid decimal format.";
+            ImGui::TextColored(ImVec4(1,0,0,1), "%s", err);
+        }
+        else
+        {
+            ImGui::TextDisabled("(%" _PRISizeT "u matches)", match_count);
+            if (search_wrapped) ImGui::SameLine(), ImGui::TextDisabled("(wrapped)");
+        }
+
+        if (!SearchRequested) return;
+
+        // Reset search state
+        SearchRequested = validation_failed = is_hex_error = is_text_error = false;
+        match_count = 0;
+        match_positions.clear();
+        if (SearchPattern) { free(SearchPattern); SearchPattern = nullptr; SearchPatternSize = 0; }
+
+        // Parse search pattern
+        const char* p = SearchInputBuf;
+        if (OptSearchText)
+        {
+            size_t byte_count = strlen(p);
+            if (!byte_count) { validation_failed = is_text_error = true; }
+            else
+            {
+                bool valid = true;
+                while (*p && valid)
+                {
+                    ImU32 codepoint;
+                    int consumed = DecodeUTF8((const ImU8*)p, strlen(p), 0, &codepoint);
+                    if (!consumed) { valid = false; break; }
+                    p += consumed;
+                }
+                if (valid)
+                {
+                    SearchPattern = (ImU8*)malloc(byte_count * sizeof(ImU8));
+                    if (!SearchPattern) { validation_failed = is_text_error = true; }
+                    else { memcpy(SearchPattern, SearchInputBuf, byte_count); SearchPatternSize = byte_count; }
+                }
+                else validation_failed = is_text_error = true;
+            }
+        }
+        else if (OptSearchHex)
+        {
+            size_t capacity = 0;
+            while (*p)
+            {
+                p = SkipWhitespace(p);
+                if (!*p) break;
+                if (!isxdigit(p[0]) || !isxdigit(p[1])) break;
+                capacity++; p += 2;
+            }
+            if (!capacity) { validation_failed = is_hex_error = true; }
+            else
+            {
+                SearchPattern = (ImU8*)malloc(capacity);
+                if (!SearchPattern) { validation_failed = is_hex_error = true; }
+                else
+                {
+                    p = SearchInputBuf;
+                    size_t byte_count = 0;
+                    while (*p && !validation_failed)
+                    {
+                        p = SkipWhitespace(p);
+                        if (!*p) break;
+                        unsigned int byte;
+                        if (!isxdigit(p[0]) || !isxdigit(p[1]) || sscanf(p, "%02X", &byte) != 1)
+                        {
+                            validation_failed = is_hex_error = true;
+                            break;
+                        }
+                        SearchPattern[byte_count++] = (ImU8)byte; p += 2;
+                    }
+                    SearchPatternSize = validation_failed ? 0 : capacity;
+                }
+            }
+        }
+        else // Decimal
+        {
+            if (use_data_preview_format && OptShowDataPreview)
+            {
+                char* cleanInput = (char*)malloc(strlen(p) + 1);
+                if (!cleanInput) { validation_failed = true; }
+                else
+                {
+                    size_t pos = 0;
+                    while (*p) { p = SkipWhitespace(p); if (!*p) break; cleanInput[pos++] = *p++; }
+                    cleanInput[pos] = '\0';
+                    bool valid = pos > 0 && strspn(cleanInput, "0123456789") == pos;
+                    uint64_t value = 0;
+                    if (valid && sscanf(cleanInput, "%" SCNu64, &value) == 1)
+                    {
+                        size_t capacity = DataTypeGetSize(PreviewDataType);
+                        SearchPattern = (ImU8*)malloc(capacity);
+                        if (!SearchPattern) { validation_failed = true; }
+                        else
+                        {
+                            SearchPatternSize = capacity;
+                            for (size_t i = 0; i < capacity; i++)
+                            {
+                                size_t shift = (PreviewEndianness == 1) ? (capacity - 1 - i) * 8 : i * 8;
+                                SearchPattern[i] = (ImU8)((value >> shift) & 0xFF);
+                            }
+                        }
+                    }
+                    else { validation_failed = true; }
+                    free(cleanInput);
+                }
+            }
+            else
+            {
+                size_t capacity = 0;
+                while (*p)
+                {
+                    p = SkipWhitespace(p);
+                    if (!*p) break;
+                    const char* start = p;
+                    while (*p && *p != ' ' && !is_nbsp(p)) p++;
+                    if (p > start) capacity++;
+                }
+                if (!capacity) { validation_failed = true; }
+                else
+                {
+                    SearchPattern = (ImU8*)malloc(capacity);
+                    if (!SearchPattern) { validation_failed = true; }
+                    else
+                    {
+                        p = SearchInputBuf;
+                        size_t i = 0;
+                        while (*p && i < capacity)
+                        {
+                            p = SkipWhitespace(p);
+                            const char* start = p;
+                            while (*p && *p != ' ' && !is_nbsp(p)) p++;
+                            if (p == start) { validation_failed = true; break; }
+                            char temp_buf[16];
+                            size_t len = IM_MIN((size_t)(p - start), sizeof(temp_buf) - 1);
+                            strncpy(temp_buf, start, len); temp_buf[len] = '\0';
+                            unsigned int byte;
+                            if (sscanf(temp_buf, "%u", &byte) != 1 || byte > 255) { validation_failed = true; break; }
+                            SearchPattern[i++] = (ImU8)byte;
+                        }
+                        SearchPatternSize = validation_failed ? 0 : i;
+                    }
+                }
+            }
+        }
+
+        if (validation_failed && SearchPattern) { free(SearchPattern); SearchPattern = nullptr; SearchPatternSize = 0; }
+        if (!SearchPatternSize) return;
+
+        // Search for matches
+        bool found = false;
+        search_wrapped = false;
+        match_count = 0;
+        match_positions.clear();
+        for (size_t addr = 0; addr <= mem_size - SearchPatternSize; addr++)
+        {
+            if (CheckPatternMatch(addr, mem_data, mem_size, SearchPattern, SearchPatternSize))
+            {
+                match_positions.push_back(addr);
+                match_count++;
+            }
+        }
+
+        // Find next/previous match
+        if (match_count)
+        {
+            size_t start_addr = search_backwards ? (current_search_pos >= SearchPatternSize ? current_search_pos - SearchPatternSize : 0) :
+                                                  (search_continuing ? current_search_pos + 1 : current_search_pos);
+            for (int i = search_backwards ? match_positions.size() - 1 : 0;
+                 search_backwards ? i >= 0 : i < match_positions.size();
+                 search_backwards ? i-- : i++)
+            {
+                if ((search_backwards && match_positions[i] <= start_addr) || (!search_backwards && match_positions[i] >= start_addr))
+                {
+                    current_search_pos = match_positions[i];
+                    found = true;
+                    break;
+                }
+            }
+            // Wrap-around search
+            if (!found && (search_backwards ? current_search_pos < mem_size : current_search_pos > 0))
+            {
+                for (int i = search_backwards ? match_positions.size() - 1 : 0;
+                     search_backwards ? i >= 0 : i < match_positions.size();
+                     search_backwards ? i-- : i++)
+                {
+                    if ((search_backwards && match_positions[i] > start_addr) || (!search_backwards && match_positions[i] < start_addr))
+                    {
+                        current_search_pos = match_positions[i];
+                        found = search_wrapped = true;
+                        break;
+                    }
+                }
+            }
+            if (found)
+            {
+                SetSelection(current_search_pos, current_search_pos + SearchPatternSize - 1);
+                GotoAddr = current_search_pos;
+                search_continuing = true;
+            }
+        }
     }
 
     void DrawPreviewLine(const Sizes& s, void* mem_data_void, size_t mem_size, size_t base_display_addr)
@@ -621,12 +2211,30 @@ struct MemoryEditor
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Dec, buf, (size_t)IM_ARRAYSIZE(buf));
         ImGui::Text("Dec"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
         if (has_value)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy##CopyDec"))
+                ImGui::SetClipboardText(buf);
+        }
+        if (has_value)
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Hex, buf, (size_t)IM_ARRAYSIZE(buf));
         ImGui::Text("Hex"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+        if (has_value)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy##CopyHex"))
+                ImGui::SetClipboardText(buf);
+        }
         if (has_value)
             DrawPreviewData(DataPreviewAddr, mem_data, mem_size, PreviewDataType, DataFormat_Bin, buf, (size_t)IM_ARRAYSIZE(buf));
         buf[IM_ARRAYSIZE(buf) - 1] = 0;
         ImGui::Text("Bin"); ImGui::SameLine(x); ImGui::TextUnformatted(has_value ? buf : "N/A");
+        if (has_value)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy##CopyBin"))
+                ImGui::SetClipboardText(buf);
+        }
     }
 
     // Utilities for Data Preview (since we don't access imgui_internal.h)
@@ -828,6 +2436,8 @@ struct MemoryEditor
     }
 };
 
+#undef IM_MAX
+#undef IM_MIN
 #undef _PRISizeT
 #undef ImSnprintf
 
