@@ -104,6 +104,7 @@ struct MemoryEditor
     bool            OptShowDataPreview;                         // = false  // display a footer previewing the decimal/binary/hex/float representation of the currently selected bytes.
     bool            OptShowHexII;                               // = false  // display values in HexII representation instead of regular hexadecimal: hide null/zero bytes, ascii values as ".X".
     bool            OptShowAscii;                               // = true   // display ASCII representation on the right side.
+    bool            OptShowUtf8;                                // = false  // display UTF-8 representation on the right side.
     bool            OptGreyOutZeroes;                           // = true   // display null/zero bytes using the TextDisabled color.
     bool            OptUpperCaseHex;                            // = true   // display hexadecimal values as "FF" instead of "ff".
     int             OptMidColsCount;                            // = 8      // set to 0 to disable extra spacing between every mid-cols.
@@ -155,6 +156,7 @@ struct MemoryEditor
         OptShowDataPreview = false;
         OptShowHexII = false;
         OptShowAscii = true;
+        OptShowUtf8 = false;
         OptGreyOutZeroes = true;
         OptUpperCaseHex = true;
         OptMidColsCount = 8;
@@ -200,6 +202,110 @@ struct MemoryEditor
         HighlightMax = addr_max;
     }
 
+    // Decode UTF-8 sequence at offset 'off' in 'data' of size 'size'
+    // Returns number of bytes consumed (1-4), or 0 if invalid
+    static int DecodeUTF8(const ImU8* data, size_t size, size_t off, ImU32* out_codepoint)
+    {
+        if (off >= size) return 0;
+
+        ImU8 c = data[off];
+        if (c < 0x80) // 1-byte sequence (ASCII)
+        {
+            *out_codepoint = c;
+            return 1; // Allow \r (0x0D) and \n (0x0A)
+        }
+        if ((c & 0xE0) == 0xC0 && off + 1 < size) // 2-byte sequence
+        {
+            ImU32 codepoint = (c & 0x1F) << 6;
+            if ((data[off + 1] & 0xC0) == 0x80)
+            {
+                codepoint |= (data[off + 1] & 0x3F);
+                if (codepoint >= 0x80) // Valid non-ASCII codepoint
+                {
+                    *out_codepoint = codepoint;
+                    return 2;
+                }
+            }
+        }
+        else if ((c & 0xF0) == 0xE0 && off + 2 < size) // 3-byte sequence
+        {
+            ImU32 codepoint = (c & 0x0F) << 12;
+            if ((data[off + 1] & 0xC0) == 0x80 && (data[off + 2] & 0xC0) == 0x80)
+            {
+                codepoint |= (data[off + 1] & 0x3F) << 6;
+                codepoint |= (data[off + 2] & 0x3F);
+                if (codepoint >= 0x800)
+                {
+                    *out_codepoint = codepoint;
+                    return 3;
+                }
+            }
+        }
+        else if ((c & 0xF8) == 0xF0 && off + 3 < size) // 4-byte sequence
+        {
+            ImU32 codepoint = (c & 0x07) << 18;
+            if ((data[off + 1] & 0xC0) == 0x80 && (data[off + 2] & 0xC0) == 0x80 && (data[off + 3] & 0xC0) == 0x80)
+            {
+                codepoint |= (data[off + 1] & 0x3F) << 12;
+                codepoint |= (data[off + 2] & 0x3F) << 6;
+                codepoint |= (data[off + 3] & 0x3F);
+                if (codepoint >= 0x10000 && codepoint <= 0x10FFFF)
+                {
+                    *out_codepoint = codepoint;
+                    return 4;
+                }
+            }
+        }
+        return 0; // Invalid UTF-8 sequence
+    }
+
+    // Encode a Unicode codepoint into a UTF-8 string
+    // out_buf must be at least 5 bytes (4 for UTF-8 + null terminator)
+    // Returns number of bytes written to out_buf (1-4), or 0 if invalid
+    static int EncodeUTF8(ImU32 codepoint, char* out_buf)
+    {
+        if (codepoint >= 0x110000)
+            return 0;
+        if (codepoint < 0x80)
+        {
+            out_buf[0] = (char)codepoint;
+            out_buf[1] = 0;
+            return 1;
+        }
+        if (codepoint < 0x800)
+        {
+            out_buf[0] = (char)(0xC0 | (codepoint >> 6));
+            out_buf[1] = (char)(0x80 | (codepoint & 0x3F));
+            out_buf[2] = 0;
+            return 2;
+        }
+        if (codepoint < 0x10000)
+        {
+            out_buf[0] = (char)(0xE0 | (codepoint >> 12));
+            out_buf[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+            out_buf[2] = (char)(0x80 | (codepoint & 0x3F));
+            out_buf[3] = 0;
+            return 3;
+        }
+        out_buf[0] = (char)(0xF0 | (codepoint >> 18));
+        out_buf[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+        out_buf[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        out_buf[3] = (char)(0x80 | (codepoint & 0x3F));
+        out_buf[4] = 0;
+        return 4;
+    }
+
+    int GetCodePoint(size_t addr, ImU32& codepoint)
+    {
+        ImU8* mem_data = (ImU8*)MemData;
+        ImU8 temp_buffer[4];
+        size_t max_bytes = IM_MIN(4, MemSize - addr);
+        for (size_t i = 0; i < max_bytes; ++i)
+            temp_buffer[i] = ReadFn ? ReadFn(mem_data, addr + i, UserData) : mem_data[addr + i];
+        int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+        return bytes;
+    }
+
     void SetSelection(size_t start, size_t end)
     {
         if (start > end)
@@ -207,6 +313,65 @@ struct MemoryEditor
             size_t temp = start - 1;
             start = end;
             end = temp;
+        }
+        // Adjust selection to align with UTF-8 sequence boundaries if OptShowUtf8 is enabled
+        if (OptShowUtf8 && MemData && MemSize > 0)
+        {
+            ImU8* mem_data = (ImU8*)MemData;
+            // Adjust start to the beginning of a UTF-8 sequence
+            if (start < MemSize)
+            {
+                ImU32 codepoint = 0;
+                ImU8 temp_buffer[4];
+                size_t max_bytes = IM_MIN(4, MemSize - start);
+                for (size_t i = 0; i < max_bytes; ++i)
+                    temp_buffer[i] = ReadFn ? ReadFn(mem_data, start + i, UserData) : mem_data[start + i];
+                int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                if (bytes == 0 && (temp_buffer[0] & 0xC0) == 0x80 && start > 0)
+                {
+                    size_t temp_addr = start;
+                    size_t max_steps = 4;
+                    while (temp_addr > 0 && (temp_buffer[0] & 0xC0) == 0x80 && max_steps > 0)
+                    {
+                        temp_addr--;
+                        max_steps--;
+                        max_bytes = IM_MIN(4, MemSize - temp_addr);
+                        for (size_t i = 0; i < max_bytes; ++i)
+                            temp_buffer[i] = ReadFn ? ReadFn(mem_data, temp_addr + i, UserData) : mem_data[temp_addr + i];
+                        bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                    }
+                    if (bytes > 0 && temp_addr + bytes - 1 >= start && temp_addr < MemSize)
+                        start = temp_addr;
+                }
+            }
+            // Adjust end to the end of a UTF-8 sequence
+            if (end < MemSize)
+            {
+                ImU32 codepoint = 0;
+                ImU8 temp_buffer[4];
+                size_t max_bytes = IM_MIN(4, MemSize - end);
+                for (size_t i = 0; i < max_bytes; ++i)
+                    temp_buffer[i] = ReadFn ? ReadFn(mem_data, end + i, UserData) : mem_data[end + i];
+                int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                if (bytes > 0 && end + bytes <= MemSize)
+                    end = end + bytes - 1;
+                else if (bytes == 0 && (temp_buffer[0] & 0xC0) == 0x80 && end > 0)
+                {
+                    size_t temp_addr = end;
+                    size_t max_steps = 4;
+                    while (temp_addr > 0 && (temp_buffer[0] & 0xC0) == 0x80 && max_steps > 0)
+                    {
+                        temp_addr--;
+                        max_steps--;
+                        max_bytes = IM_MIN(4, MemSize - temp_addr);
+                        for (size_t i = 0; i < max_bytes; ++i)
+                            temp_buffer[i] = ReadFn ? ReadFn(mem_data, temp_addr + i, UserData) : mem_data[temp_addr + i];
+                        bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                    }
+                    if (bytes > 0 && temp_addr + bytes - 1 >= end && temp_addr < MemSize)
+                        end = temp_addr + bytes - 1;
+                }
+            }
         }
         SelectionStart = start;
         SelectionEnd = end;
@@ -297,6 +462,13 @@ struct MemoryEditor
         *out = nullptr;
         if (!HasSelection() || !MemData || MemSize == 0) return;
 
+        if (OptShowUtf8)
+        {
+            // Delegate to CopySelectionAsUtf8 for UTF-8 mode
+            CopySelectionAsUtf8(out);
+            return;
+        }
+
         size_t start = IM_MIN(SelectionStart, SelectionEnd);
         size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
         size_t len = (end - start + 1) * 4 + 1; // Max 4 bytes per char (conservative for ANSI)
@@ -311,6 +483,65 @@ struct MemoryEditor
             (*out)[pos++] = (byte >= 32 && byte < 128) ? (char)byte : '.';
         }
         (*out)[pos] = '\0';
+    }
+
+    void CopySelectionAsUtf8(char** out) const
+    {
+        *out = nullptr;
+        if (!HasSelection() || !MemData || MemSize == 0) return;
+
+        size_t start = IM_MIN(SelectionStart, SelectionEnd);
+        size_t end = IM_MIN(IM_MAX(SelectionStart, SelectionEnd), MemSize - 1);
+        size_t len = (end - start + 1) * 4 + 1; // Max 4 bytes per UTF-8 char
+
+        *out = (char*)malloc(len);
+        if (*out == nullptr) return;
+
+        ImU8* temp_buffer = (ImU8*)malloc(end - start + 1);
+        if (temp_buffer == nullptr)
+        {
+            free(*out);
+            *out = nullptr;
+            return;
+        }
+        for (size_t i = start; i <= end; ++i)
+            temp_buffer[i - start] = ReadFn ? ReadFn((const ImU8*)MemData, i, UserData) : ((const ImU8*)MemData)[i];
+
+        size_t pos = 0;
+        for (size_t i = 0; i <= end - start && pos < len - 1;)
+        {
+            ImU32 codepoint = 0;
+            int bytes = DecodeUTF8(temp_buffer, end - start + 1, i, &codepoint);
+            if (bytes > 0)
+            {
+                char utf8_buf[5];
+                int written = EncodeUTF8(codepoint, utf8_buf);
+                if (written > 0)
+                {
+                    for (int j = 0; j < written && pos < len - 1; ++j)
+                        (*out)[pos++] = utf8_buf[j];
+                    i += bytes;
+                }
+                else
+                {
+                    // Write U+FFFD (�)
+                    (*out)[pos++] = (char)0xEF;
+                    (*out)[pos++] = (char)0xBF;
+                    (*out)[pos++] = (char)0xBD;
+                    i++;
+                }
+            }
+            else
+            {
+                // Write U+FFFD (�)
+                (*out)[pos++] = (char)0xEF;
+                (*out)[pos++] = (char)0xBF;
+                (*out)[pos++] = (char)0xBD;
+                i++;
+            }
+        }
+        (*out)[pos] = '\0';
+        free(temp_buffer);
     }
 
     struct Sizes
@@ -901,6 +1132,16 @@ struct MemoryEditor
                             {
                                 float char_width = s.GlyphWidth;
                                 int bytes = 1;
+                                if (OptShowUtf8)
+                                {
+                                    ImU32 codepoint = 0;
+                                    bytes = GetCodePoint(temp_addr, codepoint);
+                                    ImFont* font = ImGui::GetFont();
+                                    ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                                    char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                                    if (!bytes)
+                                        bytes = 1;
+                                }
                                 current_x += char_width;
                                 temp_addr += bytes;
                             }
@@ -909,6 +1150,16 @@ struct MemoryEditor
                             {
                                 float char_width = s.GlyphWidth;
                                 int bytes = 1;
+                                if (OptShowUtf8)
+                                {
+                                    ImU32 codepoint = 0;
+                                    bytes = GetCodePoint(temp_addr, codepoint);
+                                    ImFont* font = ImGui::GetFont();
+                                    ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                                    char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                                    if (!bytes)
+                                        bytes = 1;
+                                }
                                 sel_end_x = pos.x + current_x + char_width;
                                 current_x += char_width;
                                 temp_addr += bytes;
@@ -932,6 +1183,16 @@ struct MemoryEditor
                         {
                             float char_width = s.GlyphWidth;
                             int bytes = 1;
+                            if (OptShowUtf8)
+                            {
+                                ImU32 codepoint = 0;
+                                bytes = GetCodePoint(temp_addr, codepoint);
+                                ImFont* font = ImGui::GetFont();
+                                ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                                char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                                if (!bytes)
+                                    bytes = 1;
+                            }
                             if (current_x <= mouse_off_x && mouse_off_x < current_x + char_width)
                             {
                                 mouse_addr = temp_addr;
@@ -944,6 +1205,31 @@ struct MemoryEditor
                         }
                         if (mouse_addr == (size_t)-1 && last_valid_addr <= line_end && mouse_off_x >= last_valid_x)
                             mouse_addr = last_valid_addr;
+                        if (mouse_addr != (size_t)-1 && OptShowUtf8 && mouse_addr < mem_size)
+                        {
+                            ImU32 codepoint = 0;
+                            ImU8 temp_buffer[4];
+                            size_t max_bytes = IM_MIN(4, mem_size - mouse_addr);
+                            for (size_t i = 0; i < max_bytes; ++i)
+                                temp_buffer[i] = ReadFn ? ReadFn(mem_data, mouse_addr + i, UserData) : mem_data[mouse_addr + i];
+                            int bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                            if (bytes == 0 && (temp_buffer[0] & 0xC0) == 0x80 && mouse_addr > 0)
+                            {
+                                size_t temp_addr = mouse_addr;
+                                size_t max_steps = 4;
+                                while (temp_addr > 0 && (temp_buffer[0] & 0xC0) == 0x80 && max_steps > 0)
+                                {
+                                    temp_addr--;
+                                    max_steps--;
+                                    max_bytes = IM_MIN(4, mem_size - temp_addr);
+                                    for (size_t i = 0; i < max_bytes; ++i)
+                                        temp_buffer[i] = ReadFn ? ReadFn(mem_data, temp_addr + i, UserData) : mem_data[temp_addr + i];
+                                    bytes = DecodeUTF8(temp_buffer, max_bytes, 0, &codepoint);
+                                }
+                                if (bytes > 0 && temp_addr + bytes - 1 >= mouse_addr && temp_addr < mem_size)
+                                    mouse_addr = temp_addr;
+                            }
+                        }
                     }
 
                     ImGui::PushID(line_i);
@@ -970,9 +1256,21 @@ struct MemoryEditor
                         }
                     }
                     ImGui::PopID();
-                    for (int n = 0; n < Cols && addr < mem_size; n++, addr++)
+                    int n = 0;
+                    while (n < Cols && addr < mem_size)
                     {
                         float char_width = s.GlyphWidth;
+                        ImU32 codepoint = 0;
+                        int bytes = 1;
+                        if (OptShowUtf8)
+                        {
+                            bytes = GetCodePoint(addr, codepoint);
+                            ImFont* font = ImGui::GetFont();
+                            ImFontBaked* baked = font->GetFontBaked(font->LegacySize);
+                            char_width = baked->GetCharAdvance((ImWchar)(codepoint >= 32 ? codepoint : '.'));
+                            if (!bytes)
+                                bytes = 1;
+                        }
                         bool is_byte_hovered = ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight));
                         if (is_byte_hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
                         {
@@ -994,10 +1292,45 @@ struct MemoryEditor
                         {
                             draw_list->AddRectFilled(pos, ImVec2(pos.x + char_width, pos.y + s.LineHeight), BgColorFn(mem_data, addr, UserData));
                         }
-                        unsigned char c = ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr];
-                        char display_c = (c < 32 || c >= 128) ? '.' : c;
-                        draw_list->AddText(pos, (display_c == c) ? color_text : color_disabled, &display_c, &display_c + 1);
-                        pos.x += s.GlyphWidth;
+                        if (OptShowUtf8)
+                        {
+                            if (bytes > 0 && codepoint >= 32)
+                            {
+                                char utf8_buf[5];
+                                int written = EncodeUTF8(codepoint, utf8_buf);
+                                if (written > 0)
+                                {
+                                    draw_list->AddText(pos, color_text, utf8_buf, utf8_buf + written);
+                                    pos.x += char_width;
+                                }
+                                else
+                                {
+                                    char dot_buf[] = { '.', 0 };
+                                    draw_list->AddText(pos, color_disabled, dot_buf, dot_buf + 1);
+                                    pos.x += char_width;
+                                }
+                                addr += bytes;
+                                n += bytes;
+                            }
+                            else
+                            {
+                                char dot_buf[] = { '.', 0 };
+                                draw_list->AddText(pos, color_disabled, dot_buf, dot_buf + 1);
+                                pos.x += char_width;
+                                addr++;
+                                n++;
+                            }
+                        }
+                        else
+                        {
+                            // ANSI mode
+                            unsigned char c = ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr];
+                            char display_c = (c < 32 || c >= 128) ? '.' : c;
+                            draw_list->AddText(pos, (display_c == c) ? color_text : color_disabled, &display_c, &display_c + 1);
+                            pos.x += char_width;
+                            addr++;
+                            n++;
+                        }
                     }
                 }
             }
@@ -1155,6 +1488,16 @@ struct MemoryEditor
                         free(ascii);
                     }
                 }
+                if (ImGui::MenuItem("Copy as UTF-8"))
+                {
+                    char* utf8 = nullptr;
+                    CopySelectionAsUtf8(&utf8);
+                    if (utf8 != nullptr)
+                    {
+                        ImGui::SetClipboardText(utf8);
+                        free(utf8);
+                    }
+                }
                 ImGui::Separator();
             }
             ImGui::SetNextItemWidth(s.GlyphWidth * 7 + style.FramePadding.x * 2.0f);
@@ -1162,6 +1505,7 @@ struct MemoryEditor
             ImGui::Checkbox("Show Data Preview", &OptShowDataPreview);
             ImGui::Checkbox("Show HexII", &OptShowHexII);
             if (ImGui::Checkbox("Show Ascii", &OptShowAscii)) { ContentsWidthChanged = true; }
+            ImGui::Checkbox("Show UTF-8", &OptShowUtf8);
             ImGui::Checkbox("Grey out zeroes", &OptGreyOutZeroes);
             ImGui::Checkbox("Uppercase Hex", &OptUpperCaseHex);
 
@@ -1349,6 +1693,17 @@ struct MemoryEditor
             {
                 ImGui::SetClipboardText(ascii);
                 free(ascii);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy UTF-8"))
+        {
+            char* utf8 = nullptr;
+            CopySelectionAsUtf8(&utf8);
+            if (utf8 != nullptr)
+            {
+                ImGui::SetClipboardText(utf8);
+                free(utf8);
             }
         }
         ImGui::SameLine();
