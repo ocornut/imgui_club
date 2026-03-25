@@ -12,7 +12,7 @@
 /*
     // Storage. Keep persistent as we reuse buffers across frames.
     ImDrawDataSnapshot g_Snapshots[2];
-    ImDrawDataSnapshot* snapshot = &g_Snapshots[g_FrameIndex % 1];
+    ImDrawDataSnapshot* snapshot = &g_Snapshots[g_FrameIndex % 2];
 
     // [Update thread] Take a snapshot of the ImDrawData
     snapshot->SnapUsingSwap(ImGui::GetDrawData(), ImGui::GetTime());
