@@ -19,6 +19,12 @@
 
     // [Render thread] Render later
     ImGui_ImplDX11_RenderDrawData(&snapshot->DrawData);
+
+    // [Shutdown]
+    for (ImDrawDataSnapshot& snapshot : g_Snapshots)
+        snapshot.Clear(); // otherwise context will assert since 1.92.0
+    ImGui::DestroyContext();
+}
 */
 
 // FIXME: Could store an ID in ImDrawList to make this easier for user.
