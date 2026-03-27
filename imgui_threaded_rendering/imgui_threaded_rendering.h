@@ -26,6 +26,7 @@
     ImGui::DestroyContext();
 }
 */
+#pragma once
 
 // FIXME: Could store an ID in ImDrawList to make this easier for user.
 #pragma once
