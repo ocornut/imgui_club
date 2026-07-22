@@ -5,10 +5,27 @@
 // Based on a discussion at https://github.com/ocornut/imgui/issues/1860#issuecomment-1927630727
 // Since 1.92.0, textures also needs to be updated. See discussion at https://github.com/ocornut/imgui/issues/8597
 
-// CHANGELOG:
+
+/*
+
+Index of this file:
+// CHANGELOG
+// USAGE
+// ImDrawDataSnapshot - HEADERS
+// ImDrawDataSnapshot - IMPLEMENTATION
+
+*/
+
+//-----------------------------------------------------------------------------
+// CHANGELOG
+//-----------------------------------------------------------------------------
+
 // - v0.10: (2025/04/30): initial version. Not well tested.
 
-// Usage:
+//-----------------------------------------------------------------------------
+// USAGE
+//-----------------------------------------------------------------------------
+
 /*
     // Storage. Keep persistent as we reuse buffers across frames.
     ImDrawDataSnapshot g_Snapshots[2];
@@ -24,10 +41,9 @@
     for (ImDrawDataSnapshot& snapshot : g_Snapshots)
         snapshot.Clear(); // otherwise context will assert since 1.92.0
     ImGui::DestroyContext();
-}
+
 */
 
-// FIXME: Could store an ID in ImDrawList to make this easier for user.
 #pragma once
 #include "imgui_internal.h" // ImPool<>, ImHashData
 
@@ -53,9 +69,10 @@ struct ImDrawDataSnapshot
     ~ImDrawDataSnapshot()           { Clear(); }
     void                            Clear();
     void                            SnapUsingSwap(ImDrawData* src, double current_time); // Efficient snapshot by swapping data, meaning "src" is unusable.
-    //void                          SnapUsingCopy(ImDrawData* src, double current_time); // Deep-copy snapshop. Probably not needed.
+    //void                          SnapUsingCopy(ImDrawData* src, double current_time); // Deep-copy snapshot. Probably not needed.
 
     // Internals
+    // FIXME: Could store an ID in ImDrawList to make this easier for user.
     ImGuiID                         GetDrawListID(ImDrawList* src_list) { return ImHashData(&src_list, sizeof(src_list)); }     // Hash pointer
     ImDrawDataSnapshotEntry*        GetOrAddEntry(ImDrawList* src_list) { return Cache.GetOrAddByKey(GetDrawListID(src_list)); }
 };
