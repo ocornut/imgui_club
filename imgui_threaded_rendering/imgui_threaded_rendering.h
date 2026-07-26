@@ -17,6 +17,7 @@ Index of this file:
 // ImTextureQueue - IMPLEMENTATION
 
 */
+#pragma once
 
 //-----------------------------------------------------------------------------
 // CHANGELOG
