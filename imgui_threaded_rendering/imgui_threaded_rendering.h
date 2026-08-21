@@ -22,6 +22,7 @@ Index of this file:
 // CHANGELOG
 //-----------------------------------------------------------------------------
 
+// - v0.21: (2026/08/23): fixed support for copying AddCallback() user data when > sizeof(void*)
 // - v0.20: (2026/07/22): added ImTextureQueue support.
 // - v0.10: (2025/04/30): initial version. Not well tested.
 
@@ -154,9 +155,11 @@ inline void ImDrawDataSnapshot::SnapUsingSwap(ImDrawData* src, double current_ti
         entry->SrcCopy->CmdBuffer.swap(entry->OurCopy->CmdBuffer); // Cheap swap
         entry->SrcCopy->IdxBuffer.swap(entry->OurCopy->IdxBuffer);
         entry->SrcCopy->VtxBuffer.swap(entry->OurCopy->VtxBuffer);
+        entry->SrcCopy->_CallbacksDataBuf.swap(entry->OurCopy->_CallbacksDataBuf);
         entry->SrcCopy->CmdBuffer.reserve(entry->OurCopy->CmdBuffer.Capacity); // Preserve bigger size to avoid reallocs for two consecutive frames
         entry->SrcCopy->IdxBuffer.reserve(entry->OurCopy->IdxBuffer.Capacity);
         entry->SrcCopy->VtxBuffer.reserve(entry->OurCopy->VtxBuffer.Capacity);
+        entry->SrcCopy->_CallbacksDataBuf.reserve(entry->OurCopy->_CallbacksDataBuf.Capacity);
         entry->LastUsedTime = current_time;
         dst->CmdLists.push_back(entry->OurCopy);
     }
