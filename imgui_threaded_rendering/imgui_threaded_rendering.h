@@ -154,9 +154,11 @@ inline void ImDrawDataSnapshot::SnapUsingSwap(ImDrawData* src, double current_ti
         entry->SrcCopy->CmdBuffer.swap(entry->OurCopy->CmdBuffer); // Cheap swap
         entry->SrcCopy->IdxBuffer.swap(entry->OurCopy->IdxBuffer);
         entry->SrcCopy->VtxBuffer.swap(entry->OurCopy->VtxBuffer);
+        entry->SrcCopy->_CallbacksDataBuf.swap(entry->OurCopy->_CallbacksDataBuf);
         entry->SrcCopy->CmdBuffer.reserve(entry->OurCopy->CmdBuffer.Capacity); // Preserve bigger size to avoid reallocs for two consecutive frames
         entry->SrcCopy->IdxBuffer.reserve(entry->OurCopy->IdxBuffer.Capacity);
         entry->SrcCopy->VtxBuffer.reserve(entry->OurCopy->VtxBuffer.Capacity);
+        entry->SrcCopy->_CallbacksDataBuf.reserve(entry->OurCopy->_CallbacksDataBuf.Capacity);
         entry->LastUsedTime = current_time;
         dst->CmdLists.push_back(entry->OurCopy);
     }
