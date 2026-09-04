@@ -109,6 +109,7 @@ struct MemoryEditor
     ImU8            (*ReadFn)(const ImU8* mem, size_t off, void* user_data);      // = 0      // optional handler to read bytes.
     void            (*WriteFn)(ImU8* mem, size_t off, ImU8 d, void* user_data);   // = 0      // optional handler to write bytes.
     bool            (*HighlightFn)(const ImU8* mem, size_t off, void* user_data); // = 0      // optional handler to return Highlight property (to support non-contiguous highlighting).
+    ImU32           (*ColorFn)(const ImU8* mem, size_t off, void* user_data);     // = 0      // optional handler to return text color of individual bytes.
     ImU32           (*BgColorFn)(const ImU8* mem, size_t off, void* user_data);   // = 0      // optional handler to return custom background color of individual bytes.
     void*           UserData;                                                     // = NULL   // user data forwarded to the function handlers
 
@@ -147,6 +148,7 @@ struct MemoryEditor
         ReadFn = nullptr;
         WriteFn = nullptr;
         HighlightFn = nullptr;
+        ColorFn = nullptr;
         BgColorFn = nullptr;
         UserData = nullptr;
 
@@ -432,7 +434,12 @@ struct MemoryEditor
                         }
                         else
                         {
-                            if (b == 0 && OptGreyOutZeroes)
+                            if (ColorFn)
+                            {
+                                ImU32 color = ColorFn(mem_data, addr, UserData);
+                                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color), format_byte_space, b);
+                            }
+                            else if (b == 0 && OptGreyOutZeroes)
                                 ImGui::TextDisabled("00 ");
                             else
                                 ImGui::Text(format_byte_space, b);
@@ -485,7 +492,14 @@ struct MemoryEditor
                         }
                         unsigned char c = ReadFn ? ReadFn(mem_data, addr, UserData) : mem_data[addr];
                         char display_c = (c < 32 || c >= 128) ? '.' : c;
-                        draw_list->AddText(pos, (display_c == c) ? color_text : color_disabled, &display_c, &display_c + 1);
+
+                        ImU32 color;
+                        if (display_c == c)
+                            color = ColorFn ? ColorFn(mem_data, addr, UserData) : color_text;
+                        else
+                            color = color_disabled; // grey out non-ASCII characters
+
+                        draw_list->AddText(pos, color, &display_c, &display_c + 1);
                         pos.x += s.GlyphWidth;
                     }
                 }
